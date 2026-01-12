@@ -5,7 +5,8 @@
 ## 功能
 
 - **爬取新闻列表**：获取首页或指定页数的新闻列表
-- **爬取新闻详情**：获取特定新闻的完整内容、作者信息等
+- **爬取新闻详情**：抓取每篇文章的正文/作者等信息（默认启用）
+- **Qwen 处理**：对每篇新闻输出产业链单标签分类 + 中文客观摘要（优先 1 句，允许 1-3 句），并写入 `jsonl`
 
 ## 安装依赖
 
@@ -15,49 +16,35 @@ uv sync
 
 ## 使用方法
 
-### 1. 爬取新闻列表
+### 1. 环境变量
 
-获取首页的所有新闻：
+- `OPENAI_API_KEY`：必填
+- `OPENAI_BASE_URL`：可选；默认 `https://dashscope.aliyuncs.com/compatible-mode/v1`
+
+### 2. 端到端：爬取 + Qwen 处理 + 输出 jsonl
+
+默认 headful（因为某些环境下 headless 不可用），输出 `out.jsonl`：
 
 ```bash
-uv run python main.py
+python main.py --pages 2 --limit 20 --model qwen-plus --out out.jsonl
 ```
 
-爬取多页新闻（例如3页）：
+如需启用 headless：
 
 ```bash
-uv run python main.py --pages 3
-```
-
-### 2. 爬取新闻详情内容
-
-获取首页新闻列表，并爬取每篇文章的完整内容：
-
-```bash
-uv run python main.py --fetch-content
-```
-
-限制只爬取前 5 篇文章的详情内容：
-
-```bash
-uv run python main.py --fetch-content --limit 5
-```
-
-结合多页和详情爬取：
-
-```bash
-uv run python main.py --pages 2 --fetch-content --limit 10
+python main.py --pages 2 --limit 20 --model qwen-plus --out out.jsonl --headless
 ```
 
 ## 命令行参数
 
 - `--pages N`：爬取的页数（默认：1）
+- `--limit N`：最多处理多少篇新闻（默认：20）
+- `--out PATH`：输出 `jsonl` 路径（默认：`out.jsonl`）
+- `--model NAME`：模型名（默认：`qwen-plus`）
 - `--delay SECONDS`：页面加载后等待的秒数（默认：0.5）
 - `--timeout-ms MS`：导航超时时间，单位毫秒（默认：20000）
+- `--max-retries N`：LLM 调用重试次数（默认：3）
 - `--headless`：以无头模式运行浏览器（默认：非无头模式）
-- `--dump-html FILE`：将首页 HTML 保存到指定文件用于调试
-- `--fetch-content`：爬取每篇新闻的完整内容
-- `--limit N`：限制爬取内容的新闻数量（仅与 `--fetch-content` 配合使用）
 
 ## 数据结构
 
@@ -82,34 +69,23 @@ uv run python main.py --pages 2 --fetch-content --limit 10
 
 ## 示例输出
 
-新闻列表输出：
+输出为 `jsonl`（每行一个 JSON 对象），示例：
 
-```
-01. 图赏|CES展上的三代酷睿Ultra笔记本：899克、双屏、游戏本...... (2026-01-09)
-    https://www.eet-china.com/news/202601094157.html
-02. 谷歌云副总裁跳槽英伟达，担任首位CMO (2026-01-09)
-    https://www.eet-china.com/news/202601093048.html
-...
-```
-
-新闻详情输出：
-
-```
-================================================================================
-01. 图赏|CES展上的三代酷睿Ultra笔记本：899克、双屏、游戏本......
-发布时间: 2026-01-09
-作者: 黄烨锋
-链接: https://www.eet-china.com/news/202601094157.html
-================================================================================
-[完整的文章正文内容...]
+```json
+{"title":"...","url":"...","date":"...","author":"...","source":"EET-China","content":"...","category":"设备","summary_zh":"...","model":"qwen-plus","created_at":"2026-01-12T00:00:00+00:00","llm_base_url":"https://dashscope.aliyuncs.com/compatible-mode/v1"}
 ```
 
 ## 开发说明
 
-- 项目使用 `uv` 作为包管理器
-- 主要依赖：`beautifulsoup4`、`playwright`、`requests`
-- 核心函数位置见 [main.py](main.py)
-  - `parse_news_items()`：解析新闻列表
-  - `extract_article_content()`：提取文章详情
-  - `fetch_news_content()`：爬取单篇文章
-  - `fetch_news_contents()`：批量爬取文章详情
+- 依赖：`beautifulsoup4`、`playwright`、`openai`
+- 如遇到 Playwright 报错缺浏览器，可执行：
+
+```bash
+python -m playwright install chromium
+```
+
+- 运行单测：
+
+```bash
+python -m unittest discover -s tests -p "test_*.py"
+```

@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
-from typing import Iterable, List, Optional
+import json
+import os
+import random
+import sys
+import time
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
+from typing import Any, Iterable, Optional
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
+from bs4.element import Tag
+from openai import OpenAI
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
@@ -14,6 +22,19 @@ NEWS_PATH = "/news/"
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+)
+
+DEFAULT_DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+CATEGORY_OPTIONS = (
+    "eda/ip",
+    "设计",
+    "制造",
+    "设备",
+    "材料",
+    "封装",
+    "IDM",
+    "其他",
 )
 
 
@@ -31,15 +52,24 @@ class NewsContent:
     date: Optional[str] = None
     content: str = ""
     author: Optional[str] = None
-    source: Optional[str] = None
+    source: str = "EET-China"
 
 
-def extract_date(card: BeautifulSoup) -> Optional[str]:
+def _now_iso_utc() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _eprint(message: str) -> None:
+    print(message, file=sys.stderr)
+
+
+def extract_date(card: Tag) -> Optional[str]:
     time_tag = card.find("time")
     if time_tag:
         value = time_tag.get("datetime") or time_tag.get_text(strip=True)
-        if value:
+        if isinstance(value, str) and value:
             return value
+
     for selector in (
         "span.date",
         "div.date",
@@ -53,83 +83,79 @@ def extract_date(card: BeautifulSoup) -> Optional[str]:
             text = tag.get_text(strip=True)
             if text:
                 return text
+
     return None
 
 
 def extract_article_content(html: str) -> tuple[Optional[str], Optional[str], str]:
-    """
-    Extract article title, author, and content from HTML.
-    Returns: (title, author, content)
-    """
+    """Extract article title, author, and content from HTML."""
     soup = BeautifulSoup(html, "html.parser")
-    
-    # Try to extract title
+
     title = None
-    title_selectors = ["h1", "h1.m_title", "h1.title", "div.title h1", ".article-title"]
-    for selector in title_selectors:
+    for selector in (
+        "h1",
+        "h1.m_title",
+        "h1.title",
+        "div.title h1",
+        ".article-title",
+    ):
         title_tag = soup.select_one(selector)
         if title_tag:
             title = title_tag.get_text(strip=True)
             if title:
                 break
-    
-    # Try to extract author
+
     author = None
-    author_selectors = [
+    for selector in (
         "span.author",
         "span.m_auth",
         "p.author",
         "div.author",
         "span.m_newsauthor",
-    ]
-    for selector in author_selectors:
+    ):
         author_tag = soup.select_one(selector)
         if author_tag:
             author = author_tag.get_text(strip=True)
             if author:
                 break
-    
-    # Try to extract main content
+
     content = ""
-    content_selectors = [
+    for selector in (
         "div.m_text",
         "div.article-content",
         "div.content",
         "article",
         "div.article-body",
         "div#content",
-    ]
-    
-    for selector in content_selectors:
+    ):
         content_tag = soup.select_one(selector)
-        if content_tag:
-            # Remove script and style tags
-            for script_tag in content_tag.find_all(["script", "style"]):
-                script_tag.decompose()
-            
-            # Extract text from paragraphs or divs
-            text_parts = []
-            for p in content_tag.find_all(["p", "div"]):
-                text = p.get_text(strip=True)
-                if text:
-                    text_parts.append(text)
-            
-            if text_parts:
-                content = "\n".join(text_parts)
-                break
-    
-    # Fallback: if no content found, try to get all text from body
+        if not content_tag:
+            continue
+
+        for script_tag in content_tag.find_all(["script", "style"]):
+            script_tag.decompose()
+
+        text_parts: list[str] = []
+        for p in content_tag.find_all(["p", "div"]):
+            text = p.get_text(strip=True)
+            if text:
+                text_parts.append(text)
+
+        if text_parts:
+            content = "\n".join(text_parts)
+            break
+
     if not content:
         body = soup.find("body")
         if body:
-            for script_tag in body.find_all(["script", "style", "header", "footer", "nav"]):
-                script_tag.decompose()
+            for tag in body.find_all(["script", "style", "header", "footer", "nav"]):
+                tag.decompose()
             content = body.get_text(strip=True)
-    
+
     return title, author, content
 
 
-def parse_news_items(html: str) -> List[NewsItem]:
+def parse_news_items(html: str) -> list[NewsItem]:
     soup = BeautifulSoup(html, "html.parser")
     selectors = [
         "div.news-list li",
@@ -141,240 +167,449 @@ def parse_news_items(html: str) -> List[NewsItem]:
         "li.art-l-li",
         "article",
     ]
-    items: List[NewsItem] = []
+
+    items: list[NewsItem] = []
     seen_urls: set[str] = set()
 
     for card in soup.select(", ".join(selectors)):
         link_tag = card.select_one("h4 a[href], a.m_title[href]")
         if not link_tag:
-            link_candidates = [a for a in card.find_all("a", href=True) if a.get_text(strip=True)]
+            link_candidates = [
+                a for a in card.find_all("a", href=True) if a.get_text(strip=True)
+            ]
             link_tag = link_candidates[0] if link_candidates else None
         if not link_tag:
             continue
-        title = link_tag.get_text(strip=True) or (link_tag.get("title") or "").strip()
+
+        title_text = link_tag.get_text(strip=True)
+        title_attr = link_tag.get("title")
+        title_fallback = title_attr.strip() if isinstance(title_attr, str) else ""
+        title = title_text or title_fallback
         if not title:
             continue
-        href = urljoin(BASE_URL, link_tag["href"])
-        if href in seen_urls:
+
+        href_attr = link_tag.get("href")
+        href = href_attr if isinstance(href_attr, str) else ""
+        if not href:
             continue
-        seen_urls.add(href)
-        items.append(NewsItem(title=title, url=href, date=extract_date(card)))
+
+        full_url = urljoin(BASE_URL, href)
+        if full_url in seen_urls:
+            continue
+        seen_urls.add(full_url)
+
+        items.append(NewsItem(title=title, url=full_url, date=extract_date(card)))
 
     return items
 
 
-def fetch_news_content(
-    news_item: NewsItem,
+def _normalize_whitespace(text: str) -> str:
+    return " ".join(text.replace("\u00a0", " ").split())
+
+
+def build_content_excerpt(content: str, *, max_chars: int = 2800) -> str:
+    cleaned = content.replace("\r\n", "\n").replace("\r", "\n")
+    cleaned = "\n".join(line.strip() for line in cleaned.split("\n") if line.strip())
+    cleaned = cleaned.strip()
+
+    if not cleaned:
+        return ""
+
+    if len(cleaned) <= max_chars:
+        return cleaned
+
+    return cleaned[:max_chars]
+
+
+def get_openai_client() -> OpenAI:
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("Missing required env var: OPENAI_API_KEY")
+
+    base_url = os.environ.get("OPENAI_BASE_URL") or DEFAULT_DASHSCOPE_BASE_URL
+    return OpenAI(api_key=api_key, base_url=base_url)
+
+
+def build_llm_messages(
     *,
-    timeout_ms: int = 20000,
-    headless: bool = False,
-    user_agent: str = DEFAULT_USER_AGENT,
-) -> Optional[NewsContent]:
-    """
-    Fetch detailed content from a single news article URL.
-    Returns NewsContent with full article details, or None if fetch fails.
-    """
+    title: str,
+    url: str,
+    date: Optional[str],
+    author: Optional[str],
+    content_excerpt: str,
+) -> list[dict[str, str]]:
+    system = (
+        "你是一个严谨的中文新闻分析助手。"
+        "你的任务是对半导体相关新闻做产业链单标签分类，并做客观概括。"
+        "输出必须是严格的 JSON，且只能输出 JSON；不要输出 Markdown，不要解释。"
+        "category 必须是以下之一：eda/ip, 设计, 制造, 设备, 材料, 封装, IDM, 其他（必须单选）。"
+        "summary_zh 为中文客观概括，优先一句话，允许 1-3 句；不夸张、不推测、不带主观评价。"
+    )
+
+    rules = (
+        "分类说明：\n"
+        "- eda/ip：EDA 软件、IP 授权、仿真验证、设计工具链、PDK 等\n"
+        "- 设计：芯片/SoC/架构/方案/设计公司动态（不含 EDA/IP）\n"
+        "- 制造：晶圆制造、制程节点、良率、产能、代工厂/工厂运营\n"
+        "- 设备：光刻/刻蚀/沉积/量测/清洗等半导体设备及供应商\n"
+        "- 材料：硅片、光刻胶、靶材、气体、化学品等上游材料\n"
+        "- 封装：封装测试、先进封装（2.5D/3D/Chiplet/SiP 等）、OSAT\n"
+        "- IDM：同时覆盖设计与制造的一体化厂商相关主事件\n"
+        "- 其他：政策/市场/应用/人才等不清晰落在以上环节的内容\n"
+        "若涉及多个环节，选择新闻主语与主要事件对应的那一类（只能单选）。\n"
+        "输出 JSON schema（示例）：{\"category\":\"设备\",\"summary_zh\":\"...\"}"
+    )
+
+    payload: dict[str, Any] = {
+        "title": _normalize_whitespace(title),
+        "url": url,
+        "date": date,
+        "author": _normalize_whitespace(author) if author else None,
+        "content_excerpt": content_excerpt,
+    }
+
+    user = f"{rules}\n\n新闻内容（JSON）：\n{json.dumps(payload, ensure_ascii=False)}"
+
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]
+
+
+def parse_llm_json_object(text: str) -> dict[str, Any]:
+    stripped = text.strip()
+
+    if stripped.startswith("```"):
+        stripped = stripped.strip("`")
+        stripped = stripped.replace("json\n", "", 1).strip()
+
+    first = stripped.find("{")
+    last = stripped.rfind("}")
+    if first == -1 or last == -1 or last <= first:
+        raise ValueError("No JSON object found")
+
+    candidate = stripped[first : last + 1]
+    return json.loads(candidate)
+
+
+def normalize_and_validate_llm_result(obj: dict[str, Any]) -> tuple[str, str]:
+    category = str(obj.get("category", "")).strip()
+    summary = str(obj.get("summary_zh", "")).strip()
+
+    if category not in CATEGORY_OPTIONS:
+        raise ValueError(f"Invalid category: {category}")
+
+    summary = _normalize_whitespace(summary)
+    if not summary:
+        raise ValueError("Empty summary_zh")
+
+    terminators = "。！？"
+    count = 0
+    for idx, ch in enumerate(summary):
+        if ch in terminators:
+            count += 1
+            if count >= 3:
+                summary = summary[: idx + 1].strip()
+                break
+
+    return category, summary
+
+
+def chat_completion_with_retries(
+    client: OpenAI,
+    *,
+    model: str,
+    messages: list[dict[str, str]],
+    temperature: float,
+    max_retries: int,
+) -> str:
+    last_error: Optional[Exception] = None
+
+    for attempt in range(max_retries + 1):
+        try:
+            completion = client.chat.completions.create(
+                model=model,
+                messages=messages,  # type: ignore[arg-type]
+                temperature=temperature,
+            )
+            return completion.choices[0].message.content or ""
+        except Exception as e:  # noqa: BLE001
+            last_error = e
+            if attempt >= max_retries:
+                break
+
+            backoff = min(8.0, (2**attempt)) + random.random() * 0.2
+            _eprint(
+                f"LLM call failed (attempt {attempt + 1}/{max_retries + 1}): {e}"
+            )
+            time.sleep(backoff)
+
+    raise RuntimeError(f"LLM call failed after retries: {last_error}")
+
+
+def classify_and_summarize(
+    client: OpenAI,
+    *,
+    model: str,
+    content: NewsContent,
+    max_retries: int,
+) -> tuple[str, str]:
+    excerpt = build_content_excerpt(content.content)
+    messages = build_llm_messages(
+        title=content.title,
+        url=content.url,
+        date=content.date,
+        author=content.author,
+        content_excerpt=excerpt,
+    )
+
+    raw = chat_completion_with_retries(
+        client,
+        model=model,
+        messages=messages,
+        temperature=0.2,
+        max_retries=max_retries,
+    )
+
     try:
-        with sync_playwright() as pw:
-            browser = pw.chromium.launch(headless=headless, args=["--disable-http2"])
-            context = browser.new_context(
-                user_agent=user_agent,
-                locale="zh-CN",
-                viewport={"width": 1280, "height": 720},
-                ignore_https_errors=True,
-                extra_http_headers={
-                    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                    "Cache-Control": "no-cache",
-                },
-            )
-            page = context.new_page()
-            
-            page.goto(news_item.url, wait_until="domcontentloaded", timeout=timeout_ms)
-            html = page.content()
-            browser.close()
-            
-            # Extract article details from HTML
-            title, author, content = extract_article_content(html)
-            
-            # Use the original title if extraction fails
-            final_title = title or news_item.title
-            
-            return NewsContent(
-                title=final_title,
-                url=news_item.url,
-                date=news_item.date,
-                content=content,
-                author=author,
-                source="EET-China",
-            )
-    except PlaywrightTimeoutError:
-        print(f"Timeout fetching article: {news_item.url}")
-        return None
-    except Exception as e:
-        print(f"Error fetching article {news_item.url}: {e}")
-        return None
-
-
-def fetch_news_contents(
-    news_items: List[NewsItem],
-    *,
-    timeout_ms: int = 20000,
-    headless: bool = False,
-    user_agent: str = DEFAULT_USER_AGENT,
-    delay: float = 0.5,
-) -> List[NewsContent]:
-    """
-    Fetch detailed content for multiple news articles.
-    """
-    contents: List[NewsContent] = []
-    total = len(news_items)
-    
-    for idx, item in enumerate(news_items, start=1):
-        print(f"[{idx}/{total}] Fetching: {item.title[:50]}...")
-        content = fetch_news_content(
-            item,
-            timeout_ms=timeout_ms,
-            headless=headless,
-            user_agent=user_agent,
-        )
-        if content:
-            contents.append(content)
-        
-        # Add delay between requests
-        if delay > 0 and idx < total:
-            import time
-            time.sleep(delay)
-    
-    return contents
-
-
-def scrape_news(
-    pages: int = 1,
-    delay: float = 0.5,
-    *,
-    timeout_ms: int = 20000,
-    headless: bool = False,
-    user_agent: str = DEFAULT_USER_AGENT,
-    dump_html_path: Optional[str] = None,
-) -> List[NewsItem]:
-    all_items: List[NewsItem] = []
-
-    with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=headless, args=["--disable-http2"])
-        context = browser.new_context(
-            user_agent=user_agent,
-            locale="zh-CN",
-            viewport={"width": 1280, "height": 720},
-            ignore_https_errors=True,
-            extra_http_headers={
-                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                "Cache-Control": "no-cache",
+        obj = parse_llm_json_object(raw)
+        return normalize_and_validate_llm_result(obj)
+    except Exception:
+        repair_messages: list[dict[str, str]] = [
+            {
+                "role": "system",
+                "content": (
+                    "你是一个 JSON 修复器。只输出严格 JSON；不要输出任何额外文字。"
+                    "输出必须包含且仅包含 category 与 summary_zh 两个字段。"
+                    "category 只能是：eda/ip, 设计, 制造, 设备, 材料, 封装, IDM, 其他。"
+                ),
             },
+            {
+                "role": "user",
+                "content": f"请把下面内容修复为合法 JSON：\n{raw}",
+            },
+        ]
+
+        repaired = chat_completion_with_retries(
+            client,
+            model=model,
+            messages=repair_messages,
+            temperature=0.0,
+            max_retries=max_retries,
         )
+        obj = parse_llm_json_object(repaired)
+        return normalize_and_validate_llm_result(obj)
+
+
+def create_browser_context(pw: Any, *, headless: bool, user_agent: str) -> tuple[Any, Any]:
+    browser = pw.chromium.launch(headless=headless, args=["--disable-http2"])
+    context = browser.new_context(
+        user_agent=user_agent,
+        locale="zh-CN",
+        viewport={"width": 1280, "height": 720},
+        ignore_https_errors=True,
+        extra_http_headers={
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Cache-Control": "no-cache",
+        },
+    )
+    return browser, context
+
+
+def scrape_list(
+    context: Any,
+    *,
+    pages: int,
+    timeout_ms: int,
+    delay: float,
+) -> list[NewsItem]:
+    page = context.new_page()
+    all_items: list[NewsItem] = []
+
+    for page_num in range(1, pages + 1):
+        target_url = (
+            f"{BASE_URL}{NEWS_PATH}"
+            if page_num == 1
+            else f"{BASE_URL}{NEWS_PATH}?page={page_num}"
+        )
+        try:
+            page.goto(target_url, wait_until="domcontentloaded", timeout=timeout_ms)
+        except PlaywrightTimeoutError:
+            _eprint(f"List page timeout: page={page_num} url={target_url}")
+            if page_num > 1:
+                break
+            continue
+
+        if delay > 0:
+            page.wait_for_timeout(int(delay * 1000))
+
+        html = page.content()
+        items = parse_news_items(html)
+        if not items and page_num > 1:
+            break
+        all_items.extend(items)
+
+    page.close()
+    return all_items
+
+
+def fetch_details(
+    context: Any,
+    items: Iterable[NewsItem],
+    *,
+    timeout_ms: int,
+    delay: float,
+) -> list[NewsContent]:
+    contents: list[NewsContent] = []
+    items_list = list(items)
+
+    for idx, item in enumerate(items_list, start=1):
+        _eprint(f"[{idx}/{len(items_list)}] Fetching article: {item.title[:60]}")
+
         page = context.new_page()
-
-        for page_num in range(1, pages + 1):
-            target_url = f"{BASE_URL}{NEWS_PATH}" if page_num == 1 else f"{BASE_URL}{NEWS_PATH}?page={page_num}"
-            try:
-                page.goto(target_url, wait_until="domcontentloaded", timeout=timeout_ms)
-            except PlaywrightTimeoutError:
-                print(f"Page {page_num} timeout when fetching {target_url}")
-                if page_num > 1:
-                    break
-                continue
-
+        try:
+            page.goto(item.url, wait_until="domcontentloaded", timeout=timeout_ms)
             if delay > 0:
                 page.wait_for_timeout(int(delay * 1000))
 
             html = page.content()
-            if dump_html_path and page_num == 1:
-                with open(dump_html_path, "w", encoding="utf-8") as fp:
-                    fp.write(html)
-            items = parse_news_items(html)
-            if not items and page_num > 1:
-                break
-            all_items.extend(items)
+            title, author, content_text = extract_article_content(html)
+            contents.append(
+                NewsContent(
+                    title=title or item.title,
+                    url=item.url,
+                    date=item.date,
+                    author=author,
+                    content=content_text,
+                    source="EET-China",
+                )
+            )
+        except PlaywrightTimeoutError:
+            _eprint(f"Timeout fetching article: {item.url}")
+        except Exception as e:  # noqa: BLE001
+            _eprint(f"Error fetching article: {item.url} err={e}")
+        finally:
+            page.close()
 
-        browser.close()
-
-    return all_items
+    return contents
 
 
-def format_items(items: Iterable[NewsItem]) -> str:
-    lines = []
-    for idx, item in enumerate(items, start=1):
-        prefix = f"{idx:02d}. {item.title}"
-        suffix = f" ({item.date})" if item.date else ""
-        lines.append(f"{prefix}{suffix}\n    {item.url}")
-    return "\n".join(lines)
+def write_jsonl(records: Iterable[dict[str, Any]], out_path: str) -> int:
+    count = 0
+    with open(out_path, "w", encoding="utf-8") as fp:
+        for record in records:
+            fp.write(json.dumps(record, ensure_ascii=False))
+            fp.write("\n")
+            count += 1
+    return count
 
 
-def format_contents(contents: Iterable[NewsContent]) -> str:
-    """Format NewsContent objects for display."""
-    lines = []
-    for idx, content in enumerate(contents, start=1):
-        lines.append(f"\n{'='*80}")
-        lines.append(f"{idx:02d}. {content.title}")
-        if content.date:
-            lines.append(f"发布时间: {content.date}")
-        if content.author:
-            lines.append(f"作者: {content.author}")
-        lines.append(f"链接: {content.url}")
-        lines.append(f"{'='*80}")
-        lines.append(content.content)
-    return "\n".join(lines)
+def run_pipeline(
+    *,
+    pages: int,
+    limit: int,
+    out_path: str,
+    model: str,
+    timeout_ms: int,
+    delay: float,
+    max_retries: int,
+    headless: bool,
+) -> int:
+    client = get_openai_client()
+
+    with sync_playwright() as pw:
+        browser, context = create_browser_context(
+            pw,
+            headless=headless,
+            user_agent=DEFAULT_USER_AGENT,
+        )
+
+        try:
+            items = scrape_list(context, pages=pages, timeout_ms=timeout_ms, delay=delay)
+            if not items:
+                _eprint("No news items found.")
+                return 0
+
+            items = items[:limit]
+            details = fetch_details(
+                context,
+                items,
+                timeout_ms=timeout_ms,
+                delay=delay,
+            )
+
+        finally:
+            context.close()
+            browser.close()
+
+    def records() -> Iterable[dict[str, Any]]:
+        llm_base_url = os.environ.get("OPENAI_BASE_URL") or DEFAULT_DASHSCOPE_BASE_URL
+        for idx, content in enumerate(details, start=1):
+            _eprint(f"[{idx}/{len(details)}] LLM processing: {content.title[:60]}")
+            category, summary = classify_and_summarize(
+                client,
+                model=model,
+                content=content,
+                max_retries=max_retries,
+            )
+            yield {
+                **asdict(content),
+                "category": category,
+                "summary_zh": summary,
+                "model": model,
+                "created_at": _now_iso_utc(),
+                "llm_base_url": llm_base_url,
+            }
+
+    return write_jsonl(records(), out_path)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Scrape EET-China news using Playwright")
-    parser.add_argument("--pages", type=int, default=1, help="Number of pages to scrape")
-    parser.add_argument("--delay", type=float, default=0.5, help="Seconds to wait after page load")
-    parser.add_argument("--timeout-ms", type=int, default=20000, help="Navigation timeout in milliseconds")
-    parser.add_argument("--headless", action="store_true", help="Run browser in headless mode (default is headful)")
-    parser.add_argument("--dump-html", help="Save first page HTML to a file for debugging")
+    parser = argparse.ArgumentParser(
+        description=(
+            "Scrape EET-China news then classify & summarize with Qwen (JSONL). "
+            "Env: OPENAI_API_KEY required; OPENAI_BASE_URL optional (defaults to DashScope)."
+        )
+    )
+
+    parser.add_argument("--pages", type=int, default=1, help="Number of list pages")
+    parser.add_argument("--limit", type=int, default=20, help="Max articles to process")
+    parser.add_argument("--out", default="out.jsonl", help="Output JSONL path")
+    parser.add_argument("--model", default="qwen-plus", help="Model name, e.g. qwen-plus")
+    parser.add_argument("--timeout-ms", type=int, default=20000, help="Navigation timeout")
+    parser.add_argument("--delay", type=float, default=0.5, help="Seconds to wait")
+    parser.add_argument("--max-retries", type=int, default=3, help="LLM retry count")
     parser.add_argument(
-        "--fetch-content",
+        "--headless",
         action="store_true",
-        help="Fetch full article content from each news item"
+        help="Run browser in headless mode (default is headful)",
     )
-    parser.add_argument(
-        "--limit",
-        type=int,
-        default=None,
-        help="Limit number of articles to fetch content for (only with --fetch-content)"
-    )
+
     args = parser.parse_args()
 
-    items = scrape_news(
-        pages=max(args.pages, 1),
-        delay=max(args.delay, 0.0),
-        timeout_ms=max(args.timeout_ms, 1000),
-        headless=bool(args.headless),
-        dump_html_path=args.dump_html,
-    )
-    
-    if not items:
-        print("No news items found.")
-        return
-    
-    # If --fetch-content flag is set, fetch full article content
-    if args.fetch_content:
-        # Limit the number of items if specified
-        items_to_fetch = items[:args.limit] if args.limit else items
-        contents = fetch_news_contents(
-            items_to_fetch,
-            timeout_ms=max(args.timeout_ms, 1000),
+    pages = max(int(args.pages), 1)
+    limit = max(int(args.limit), 1)
+    timeout_ms = max(int(args.timeout_ms), 1000)
+    delay = max(float(args.delay), 0.0)
+    max_retries = max(int(args.max_retries), 0)
+
+    try:
+        total = run_pipeline(
+            pages=pages,
+            limit=limit,
+            out_path=str(args.out),
+            model=str(args.model),
+            timeout_ms=timeout_ms,
+            delay=delay,
+            max_retries=max_retries,
             headless=bool(args.headless),
-            delay=max(args.delay, 0.0),
         )
-        if contents:
-            print(format_contents(contents))
-        else:
-            print("Failed to fetch article contents.")
-    else:
-        print(format_items(items))
+    except RuntimeError as e:
+        _eprint(str(e))
+        sys.exit(2)
+
+    print(f"Wrote {total} records to {args.out}")
 
 
 if __name__ == "__main__":
