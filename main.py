@@ -257,7 +257,7 @@ def build_llm_messages(
         "- IDM：同时覆盖设计与制造的一体化厂商相关主事件\n"
         "- 其他：政策/市场/应用/人才等不清晰落在以上环节的内容\n"
         "若涉及多个环节，选择新闻主语与主要事件对应的那一类（只能单选）。\n"
-        "输出 JSON schema（示例）：{\"category\":\"设备\",\"summary_zh\":\"...\"}"
+        '输出 JSON schema（示例）：{"category":"设备","summary_zh":"..."}'
     )
 
     payload: dict[str, Any] = {
@@ -339,9 +339,7 @@ def chat_completion_with_retries(
                 break
 
             backoff = min(8.0, (2**attempt)) + random.random() * 0.2
-            _eprint(
-                f"LLM call failed (attempt {attempt + 1}/{max_retries + 1}): {e}"
-            )
+            _eprint(f"LLM call failed (attempt {attempt + 1}/{max_retries + 1}): {e}")
             time.sleep(backoff)
 
     raise RuntimeError(f"LLM call failed after retries: {last_error}")
@@ -401,7 +399,9 @@ def classify_and_summarize(
         return normalize_and_validate_llm_result(obj)
 
 
-def create_browser_context(pw: Any, *, headless: bool, user_agent: str) -> tuple[Any, Any]:
+def create_browser_context(
+    pw: Any, *, headless: bool, user_agent: str
+) -> tuple[Any, Any]:
     browser = pw.chromium.launch(headless=headless, args=["--disable-http2"])
     context = browser.new_context(
         user_agent=user_agent,
@@ -495,13 +495,50 @@ def fetch_details(
     return contents
 
 
+def load_processed_urls(out_path: str) -> set[str]:
+    if not os.path.exists(out_path):
+        return set()
+
+    processed: set[str] = set()
+    with open(out_path, "r", encoding="utf-8") as fp:
+        for line_no, line in enumerate(fp, start=1):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                record = json.loads(stripped)
+            except json.JSONDecodeError:
+                _eprint(f"Skipping invalid JSONL line: {out_path}:{line_no}")
+                continue
+
+            url = record.get("url") if isinstance(record, dict) else None
+            if isinstance(url, str) and url:
+                processed.add(url)
+
+    return processed
+
+
+def _jsonl_needs_leading_newline(out_path: str) -> bool:
+    try:
+        with open(out_path, "rb") as fp:
+            fp.seek(-1, os.SEEK_END)
+            return fp.read(1) != b"\n"
+    except OSError:
+        return False
+
+
 def write_jsonl(records: Iterable[dict[str, Any]], out_path: str) -> int:
     count = 0
-    with open(out_path, "w", encoding="utf-8") as fp:
+    with open(out_path, "a", encoding="utf-8") as fp:
+        if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
+            if _jsonl_needs_leading_newline(out_path):
+                fp.write("\n")
+
         for record in records:
             fp.write(json.dumps(record, ensure_ascii=False))
             fp.write("\n")
             count += 1
+
     return count
 
 
@@ -516,7 +553,9 @@ def run_pipeline(
     max_retries: int,
     headless: bool,
 ) -> int:
-    client = get_openai_client()
+    processed_urls = load_processed_urls(out_path)
+    if processed_urls:
+        _eprint(f"Loaded {len(processed_urls)} processed URLs from {out_path}")
 
     with sync_playwright() as pw:
         browser, context = create_browser_context(
@@ -526,15 +565,26 @@ def run_pipeline(
         )
 
         try:
-            items = scrape_list(context, pages=pages, timeout_ms=timeout_ms, delay=delay)
+            items = scrape_list(
+                context, pages=pages, timeout_ms=timeout_ms, delay=delay
+            )
             if not items:
                 _eprint("No news items found.")
                 return 0
 
-            items = items[:limit]
+            new_items = [item for item in items if item.url not in processed_urls]
+            skipped = len(items) - len(new_items)
+            if skipped > 0:
+                _eprint(f"Skipping {skipped} already-processed articles")
+
+            new_items = new_items[:limit]
+            if not new_items:
+                _eprint("No new items to process (all already processed).")
+                return 0
+
             details = fetch_details(
                 context,
-                items,
+                new_items,
                 timeout_ms=timeout_ms,
                 delay=delay,
             )
@@ -542,6 +592,12 @@ def run_pipeline(
         finally:
             context.close()
             browser.close()
+
+    if not details:
+        _eprint("No article details fetched.")
+        return 0
+
+    client = get_openai_client()
 
     def records() -> Iterable[dict[str, Any]]:
         llm_base_url = os.environ.get("OPENAI_BASE_URL") or DEFAULT_DASHSCOPE_BASE_URL
@@ -576,8 +632,12 @@ def main() -> None:
     parser.add_argument("--pages", type=int, default=1, help="Number of list pages")
     parser.add_argument("--limit", type=int, default=20, help="Max articles to process")
     parser.add_argument("--out", default="out.jsonl", help="Output JSONL path")
-    parser.add_argument("--model", default="qwen-plus", help="Model name, e.g. qwen-plus")
-    parser.add_argument("--timeout-ms", type=int, default=20000, help="Navigation timeout")
+    parser.add_argument(
+        "--model", default="qwen-plus", help="Model name, e.g. qwen-plus"
+    )
+    parser.add_argument(
+        "--timeout-ms", type=int, default=20000, help="Navigation timeout"
+    )
     parser.add_argument("--delay", type=float, default=0.5, help="Seconds to wait")
     parser.add_argument("--max-retries", type=int, default=3, help="LLM retry count")
     parser.add_argument(
@@ -609,7 +669,7 @@ def main() -> None:
         _eprint(str(e))
         sys.exit(2)
 
-    print(f"Wrote {total} records to {args.out}")
+    print(f"Appended {total} records to {args.out}")
 
 
 if __name__ == "__main__":
