@@ -424,14 +424,14 @@ def scrape_list(
     timeout_ms: int,
     delay: float,
 ) -> list[NewsItem]:
-    page = context.new_page()
     all_items: list[NewsItem] = []
 
     for page_num in range(1, pages + 1):
+        page = context.new_page()
         target_url = (
             f"{BASE_URL}{NEWS_PATH}"
             if page_num == 1
-            else f"{BASE_URL}{NEWS_PATH}?page={page_num}"
+            else f"{BASE_URL}{NEWS_PATH}index_{page_num}.html"
         )
         try:
             page.goto(target_url, wait_until="domcontentloaded", timeout=timeout_ms)
@@ -450,7 +450,7 @@ def scrape_list(
             break
         all_items.extend(items)
 
-    page.close()
+        page.close()
     return all_items
 
 
