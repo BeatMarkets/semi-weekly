@@ -440,11 +440,8 @@ def classify_and_summarize(
         return normalize_and_validate_llm_result(obj)
 
 
-def create_browser_context(
-    pw: Any, *, headless: bool, user_agent: str
-) -> tuple[Any, Any]:
-    browser = pw.chromium.launch(headless=headless, args=["--disable-http2"])
-    context = browser.new_context(
+def create_context(browser: Any, *, user_agent: str) -> Any:
+    return browser.new_context(
         user_agent=user_agent,
         locale="zh-CN",
         viewport={"width": 1280, "height": 720},
@@ -455,6 +452,13 @@ def create_browser_context(
             "Cache-Control": "no-cache",
         },
     )
+
+
+def create_browser_context(
+    pw: Any, *, headless: bool, user_agent: str
+) -> tuple[Any, Any]:
+    browser = pw.chromium.launch(headless=headless, args=["--disable-http2"])
+    context = create_context(browser, user_agent=user_agent)
     return browser, context
 
 
@@ -478,6 +482,7 @@ def scrape_list(
             page.goto(target_url, wait_until="domcontentloaded", timeout=timeout_ms)
         except PlaywrightTimeoutError:
             _eprint(f"List page timeout: page={page_num} url={target_url}")
+            page.close()
             if page_num > 1:
                 break
             continue
@@ -781,21 +786,24 @@ def cmd_fetch(
         for row in rows
     ]
 
+    details: list[NewsContent] = []
     with sync_playwright() as pw:
-        browser, context = create_browser_context(
-            pw,
-            headless=headless,
-            user_agent=DEFAULT_USER_AGENT,
-        )
+        browser = pw.chromium.launch(headless=headless, args=["--disable-http2"])
         try:
-            details = fetch_details(
-                context,
-                items,
-                timeout_ms=timeout_ms,
-                delay=delay,
-            )
+            for item in items:
+                context = create_context(browser, user_agent=DEFAULT_USER_AGENT)
+                try:
+                    details.extend(
+                        fetch_details(
+                            context,
+                            [item],
+                            timeout_ms=timeout_ms,
+                            delay=delay,
+                        )
+                    )
+                finally:
+                    context.close()
         finally:
-            context.close()
             browser.close()
 
     if not details:
