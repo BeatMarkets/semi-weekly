@@ -4,11 +4,14 @@ import argparse
 import json
 import os
 import random
+import re
+import sqlite3
 import sys
 import time
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Iterator, Optional
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
@@ -25,6 +28,7 @@ DEFAULT_USER_AGENT = (
 )
 
 DEFAULT_DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+DEFAULT_DB_PATH = "data/semi_weekly.db"
 
 CATEGORY_OPTIONS = (
     "eda/ip",
@@ -36,6 +40,43 @@ CATEGORY_OPTIONS = (
     "IDM",
     "其他",
 )
+
+REVIEW_STATUS_PENDING = "pending"
+REVIEW_STATUS_REVIEWED = "reviewed"
+
+
+def load_dotenv(path: str = ".env") -> None:
+    if not os.path.exists(path):
+        return
+
+    try:
+        with open(path, "r", encoding="utf-8") as fp:
+            for raw_line in fp:
+                line = raw_line.strip()
+                if not line or line.startswith("#"):
+                    continue
+
+                if line.startswith("export "):
+                    line = line[len("export ") :].strip()
+
+                if "=" not in line:
+                    continue
+
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip()
+                if not key:
+                    continue
+
+                if (
+                    (value.startswith('"') and value.endswith('"'))
+                    or (value.startswith("'") and value.endswith("'"))
+                ) and len(value) >= 2:
+                    value = value[1:-1]
+
+                os.environ.setdefault(key, value)
+    except OSError:
+        return
 
 
 @dataclass
@@ -495,67 +536,180 @@ def fetch_details(
     return contents
 
 
-def load_processed_urls(out_path: str) -> set[str]:
-    if not os.path.exists(out_path):
-        return set()
-
-    processed: set[str] = set()
-    with open(out_path, "r", encoding="utf-8") as fp:
-        for line_no, line in enumerate(fp, start=1):
-            stripped = line.strip()
-            if not stripped:
-                continue
-            try:
-                record = json.loads(stripped)
-            except json.JSONDecodeError:
-                _eprint(f"Skipping invalid JSONL line: {out_path}:{line_no}")
-                continue
-
-            url = record.get("url") if isinstance(record, dict) else None
-            if isinstance(url, str) and url:
-                processed.add(url)
-
-    return processed
+def ensure_parent_dir(path: str) -> None:
+    parent = os.path.dirname(os.path.abspath(path))
+    if parent and not os.path.exists(parent):
+        os.makedirs(parent, exist_ok=True)
 
 
-def _jsonl_needs_leading_newline(out_path: str) -> bool:
+def connect_db(db_path: str) -> sqlite3.Connection:
+    ensure_parent_dir(db_path)
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    ensure_db_schema(conn)
+    return conn
+
+
+@contextmanager
+def open_db(db_path: str) -> Iterator[sqlite3.Connection]:
+    conn = connect_db(db_path)
     try:
-        with open(out_path, "rb") as fp:
-            fp.seek(-1, os.SEEK_END)
-            return fp.read(1) != b"\n"
-    except OSError:
-        return False
+        yield conn
+    finally:
+        conn.close()
 
 
-def write_jsonl(records: Iterable[dict[str, Any]], out_path: str) -> int:
-    count = 0
-    with open(out_path, "a", encoding="utf-8") as fp:
-        if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
-            if _jsonl_needs_leading_newline(out_path):
-                fp.write("\n")
+def ensure_db_schema(conn: sqlite3.Connection) -> None:
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS articles (
+          id INTEGER PRIMARY KEY,
+          source TEXT NOT NULL,
+          url TEXT NOT NULL UNIQUE,
+          title TEXT NOT NULL,
+          date_raw TEXT,
+          published_date TEXT,
+          author TEXT,
+          content TEXT,
+          content_fetched_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          last_seen_at TEXT NOT NULL
+        );
 
-        for record in records:
-            fp.write(json.dumps(record, ensure_ascii=False))
-            fp.write("\n")
-            count += 1
+        CREATE TABLE IF NOT EXISTS llm_results (
+          article_id INTEGER PRIMARY KEY,
+          model TEXT NOT NULL,
+          base_url TEXT NOT NULL,
+          category TEXT NOT NULL,
+          summary_zh TEXT NOT NULL,
+          raw_json TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          FOREIGN KEY(article_id) REFERENCES articles(id) ON DELETE CASCADE
+        );
 
-    return count
+        CREATE TABLE IF NOT EXISTS reviews (
+          article_id INTEGER PRIMARY KEY,
+          review_status TEXT NOT NULL,
+          user_title TEXT,
+          user_category TEXT,
+          user_summary_zh TEXT,
+          user_notes TEXT,
+          reviewed_at TEXT,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY(article_id) REFERENCES articles(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_reviews_status ON reviews(review_status);
+        CREATE INDEX IF NOT EXISTS idx_articles_pubdate ON articles(published_date);
+        """
+    )
 
 
-def run_pipeline(
+_DATE_RE = re.compile(r"(\d{4})[\-/](\d{1,2})[\-/](\d{1,2})")
+_DATE_ZH_RE = re.compile(r"(\d{4})年(\d{1,2})月(\d{1,2})日")
+
+
+def normalize_published_date(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    if len(text) >= 10 and text[4] in "-/" and text[7] in "-/":
+        match = _DATE_RE.search(text[:10])
+        if match:
+            y, m, d = (int(match.group(1)), int(match.group(2)), int(match.group(3)))
+            return f"{y:04d}-{m:02d}-{d:02d}"
+
+    match = _DATE_RE.search(text)
+    if match:
+        y, m, d = (int(match.group(1)), int(match.group(2)), int(match.group(3)))
+        return f"{y:04d}-{m:02d}-{d:02d}"
+
+    match = _DATE_ZH_RE.search(text)
+    if match:
+        y, m, d = (int(match.group(1)), int(match.group(2)), int(match.group(3)))
+        return f"{y:04d}-{m:02d}-{d:02d}"
+
+    return None
+
+
+def get_pending_review_total(conn: sqlite3.Connection) -> int:
+    row = conn.execute(
+        "SELECT COUNT(1) AS cnt FROM reviews WHERE review_status = ?",
+        (REVIEW_STATUS_PENDING,),
+    ).fetchone()
+    return int(row["cnt"]) if row else 0
+
+
+def upsert_article(
+    conn: sqlite3.Connection,
     *,
+    item: NewsItem,
+    now: str,
+) -> tuple[int, bool]:
+    existing = conn.execute(
+        "SELECT id FROM articles WHERE url = ?",
+        (item.url,),
+    ).fetchone()
+
+    published_date = normalize_published_date(item.date)
+
+    conn.execute(
+        """
+        INSERT INTO articles (
+          source, url, title, date_raw, published_date, author, content, content_fetched_at,
+          created_at, updated_at, last_seen_at
+        ) VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?)
+        ON CONFLICT(url) DO UPDATE SET
+          title = excluded.title,
+          date_raw = excluded.date_raw,
+          published_date = COALESCE(excluded.published_date, articles.published_date),
+          updated_at = excluded.updated_at,
+          last_seen_at = excluded.last_seen_at
+        """,
+        (
+            "EET-China",
+            item.url,
+            item.title,
+            item.date,
+            published_date,
+            now,
+            now,
+            now,
+        ),
+    )
+
+    row = conn.execute("SELECT id FROM articles WHERE url = ?", (item.url,)).fetchone()
+    if not row:
+        raise RuntimeError(f"Failed to upsert article: url={item.url}")
+
+    article_id = int(row["id"])
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO reviews (article_id, review_status, updated_at)
+        VALUES (?, ?, ?)
+        """,
+        (article_id, REVIEW_STATUS_PENDING, now),
+    )
+
+    is_new = existing is None
+    return article_id, is_new
+
+
+def cmd_sync(
+    *,
+    db_path: str,
     pages: int,
-    limit: int,
-    out_path: str,
-    model: str,
     timeout_ms: int,
     delay: float,
-    max_retries: int,
     headless: bool,
-) -> int:
-    processed_urls = load_processed_urls(out_path)
-    if processed_urls:
-        _eprint(f"Loaded {len(processed_urls)} processed URLs from {out_path}")
+) -> tuple[int, int, int]:
+    now = _now_iso_utc()
 
     with sync_playwright() as pw:
         browser, context = create_browser_context(
@@ -563,32 +717,83 @@ def run_pipeline(
             headless=headless,
             user_agent=DEFAULT_USER_AGENT,
         )
-
         try:
             items = scrape_list(
                 context, pages=pages, timeout_ms=timeout_ms, delay=delay
             )
-            if not items:
-                _eprint("No news items found.")
-                return 0
+        finally:
+            context.close()
+            browser.close()
 
-            new_items = [item for item in items if item.url not in processed_urls]
-            skipped = len(items) - len(new_items)
-            if skipped > 0:
-                _eprint(f"Skipping {skipped} already-processed articles")
+    if not items:
+        _eprint("No news items found.")
+        return 0, 0, 0
 
-            new_items = new_items[:limit]
-            if not new_items:
-                _eprint("No new items to process (all already processed).")
-                return 0
+    new_count = 0
+    updated_count = 0
+    with open_db(db_path) as conn:
+        with conn:
+            for item in items:
+                _, is_new = upsert_article(conn, item=item, now=now)
+                if is_new:
+                    new_count += 1
+                else:
+                    updated_count += 1
 
+        pending_total = get_pending_review_total(conn)
+
+    _eprint(
+        f"sync done: new={new_count} updated={updated_count} pending_total={pending_total}"
+    )
+    return new_count, updated_count, pending_total
+
+
+def cmd_fetch(
+    *,
+    db_path: str,
+    limit: int,
+    timeout_ms: int,
+    delay: float,
+    headless: bool,
+) -> int:
+    with open_db(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT id, url, title, date_raw
+            FROM articles
+            WHERE content IS NULL OR content = ''
+            ORDER BY COALESCE(published_date, '') DESC, id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+
+    if not rows:
+        _eprint("No articles need fetching.")
+        return 0
+
+    items = [
+        NewsItem(
+            title=str(row["title"]),
+            url=str(row["url"]),
+            date=str(row["date_raw"]) if row["date_raw"] is not None else None,
+        )
+        for row in rows
+    ]
+
+    with sync_playwright() as pw:
+        browser, context = create_browser_context(
+            pw,
+            headless=headless,
+            user_agent=DEFAULT_USER_AGENT,
+        )
+        try:
             details = fetch_details(
                 context,
-                new_items,
+                items,
                 timeout_ms=timeout_ms,
                 delay=delay,
             )
-
         finally:
             context.close()
             browser.close()
@@ -597,79 +802,512 @@ def run_pipeline(
         _eprint("No article details fetched.")
         return 0
 
+    now = _now_iso_utc()
+
+    updated = 0
+    with open_db(db_path) as conn:
+        with conn:
+            for content in details:
+                conn.execute(
+                    """
+                    UPDATE articles
+                    SET title = ?, author = ?, content = ?, content_fetched_at = ?, updated_at = ?
+                    WHERE url = ?
+                    """,
+                    (
+                        content.title,
+                        content.author,
+                        content.content,
+                        now,
+                        now,
+                        content.url,
+                    ),
+                )
+                updated += 1
+
+    _eprint(f"fetch done: fetched={updated}")
+    return updated
+
+
+def cmd_llm(
+    *,
+    db_path: str,
+    limit: int,
+    model: str,
+    max_retries: int,
+) -> int:
+    with open_db(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT a.id, a.title, a.url, a.date_raw, a.published_date, a.author, a.content
+            FROM articles a
+            LEFT JOIN llm_results l ON l.article_id = a.id
+            WHERE l.article_id IS NULL
+              AND a.content IS NOT NULL
+              AND a.content != ''
+            ORDER BY COALESCE(a.published_date, '') DESC, a.id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+
+    if not rows:
+        _eprint("No articles need LLM processing.")
+        return 0
+
     client = get_openai_client()
+    llm_base_url = os.environ.get("OPENAI_BASE_URL") or DEFAULT_DASHSCOPE_BASE_URL
 
-    def records() -> Iterable[dict[str, Any]]:
-        llm_base_url = os.environ.get("OPENAI_BASE_URL") or DEFAULT_DASHSCOPE_BASE_URL
-        for idx, content in enumerate(details, start=1):
-            _eprint(f"[{idx}/{len(details)}] LLM processing: {content.title[:60]}")
-            category, summary = classify_and_summarize(
-                client,
-                model=model,
-                content=content,
-                max_retries=max_retries,
-            )
-            yield {
-                **asdict(content),
-                "category": category,
-                "summary_zh": summary,
-                "model": model,
-                "created_at": _now_iso_utc(),
-                "llm_base_url": llm_base_url,
-            }
+    now = _now_iso_utc()
+    processed = 0
 
-    return write_jsonl(records(), out_path)
+    with open_db(db_path) as conn:
+        with conn:
+            for idx, row in enumerate(rows, start=1):
+                title = str(row["title"])
+                _eprint(f"[{idx}/{len(rows)}] LLM processing: {title[:60]}")
+
+                date_value = (
+                    str(row["published_date"])
+                    if row["published_date"]
+                    else (str(row["date_raw"]) if row["date_raw"] else None)
+                )
+                content = NewsContent(
+                    title=title,
+                    url=str(row["url"]),
+                    date=date_value,
+                    author=str(row["author"]) if row["author"] else None,
+                    content=str(row["content"]),
+                    source="EET-China",
+                )
+
+                category, summary = classify_and_summarize(
+                    client,
+                    model=model,
+                    content=content,
+                    max_retries=max_retries,
+                )
+
+                raw_json = json.dumps(
+                    {"category": category, "summary_zh": summary},
+                    ensure_ascii=False,
+                )
+
+                conn.execute(
+                    """
+                    INSERT INTO llm_results (
+                      article_id, model, base_url, category, summary_zh, raw_json, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(article_id) DO UPDATE SET
+                      model = excluded.model,
+                      base_url = excluded.base_url,
+                      category = excluded.category,
+                      summary_zh = excluded.summary_zh,
+                      raw_json = excluded.raw_json,
+                      created_at = excluded.created_at
+                    """,
+                    (
+                        int(row["id"]),
+                        model,
+                        llm_base_url,
+                        category,
+                        summary,
+                        raw_json,
+                        now,
+                    ),
+                )
+                conn.execute(
+                    "UPDATE articles SET updated_at = ? WHERE id = ?",
+                    (now, int(row["id"])),
+                )
+                processed += 1
+
+    _eprint(f"llm done: processed={processed}")
+    return processed
 
 
-def main() -> None:
+def cmd_run(
+    *,
+    db_path: str,
+    pages: int,
+    limit: int,
+    model: str,
+    timeout_ms: int,
+    delay: float,
+    max_retries: int,
+    headless: bool,
+) -> None:
+    new_count, updated_count, _ = cmd_sync(
+        db_path=db_path,
+        pages=pages,
+        timeout_ms=timeout_ms,
+        delay=delay,
+        headless=headless,
+    )
+    fetched = cmd_fetch(
+        db_path=db_path,
+        limit=limit,
+        timeout_ms=timeout_ms,
+        delay=delay,
+        headless=headless,
+    )
+    llm_processed = cmd_llm(
+        db_path=db_path,
+        limit=limit,
+        model=model,
+        max_retries=max_retries,
+    )
+
+    with open_db(db_path) as conn:
+        pending_total = get_pending_review_total(conn)
+
+    print(
+        "run summary: "
+        f"new={new_count} updated={updated_count} "
+        f"fetched={fetched} llm={llm_processed} pending_total={pending_total}"
+    )
+
+
+def _format_article_header(row: sqlite3.Row) -> str:
+    date = row["published_date"] or row["date_raw"] or ""
+    status = row["review_status"]
+    title = row["user_title"] or row["title"]
+    return f"[{row['id']}] {date} | {status} | {title}"
+
+
+def _format_category(value: Optional[str]) -> str:
+    if not value:
+        return ""
+    if value == "eda/ip":
+        return "EDA/IP"
+    return str(value)
+
+
+def _prompt_edit_field(
+    label: str, current: Optional[str]
+) -> tuple[bool, Optional[str]]:
+    current_display = current if current is not None else ""
+    entered = input(f"{label} (empty=keep, '-'=clear) [{current_display}]: ").strip()
+    if not entered:
+        return False, None
+    if entered == "-":
+        return True, None
+    return True, entered
+
+
+def cmd_review(
+    *,
+    db_path: str,
+    status: str,
+    limit: int,
+    article_id: Optional[int],
+) -> None:
+    if status not in (REVIEW_STATUS_PENDING, REVIEW_STATUS_REVIEWED):
+        raise RuntimeError(f"Invalid status: {status}")
+
+    query = (
+        "SELECT a.id, a.title, a.url, a.published_date, a.date_raw, "
+        "l.category AS llm_category, l.summary_zh AS llm_summary, "
+        "r.review_status, r.user_title, r.user_category, r.user_summary_zh, r.user_notes "
+        "FROM reviews r "
+        "JOIN articles a ON a.id = r.article_id "
+        "LEFT JOIN llm_results l ON l.article_id = a.id "
+        "WHERE r.review_status = ? "
+    )
+    params: list[Any] = [status]
+
+    if article_id is not None:
+        query = query.replace("WHERE r.review_status = ? ", "WHERE a.id = ? ")
+        params = [article_id]
+
+    query += "ORDER BY COALESCE(a.published_date, '') DESC, a.id DESC "
+    if article_id is None:
+        query += "LIMIT ?"
+        params.append(limit)
+
+    with open_db(db_path) as conn:
+        rows = conn.execute(query, tuple(params)).fetchall()
+        if not rows:
+            print("No records to review.")
+            return
+
+        for row in rows:
+            print("\n" + "=" * 88)
+            print(_format_article_header(row))
+            print(f"URL: {row['url']}")
+
+            llm_cat = _format_category(row["llm_category"])
+            user_cat = _format_category(row["user_category"])
+            if llm_cat:
+                print(f"LLM category: {llm_cat}")
+            if row["llm_summary"]:
+                print(f"LLM summary: {row['llm_summary']}")
+
+            if (
+                user_cat
+                or row["user_summary_zh"]
+                or row["user_notes"]
+                or row["user_title"]
+            ):
+                print("---")
+                if row["user_title"]:
+                    print(f"User title: {row['user_title']}")
+                if user_cat:
+                    print(f"User category: {user_cat}")
+                if row["user_summary_zh"]:
+                    print(f"User summary: {row['user_summary_zh']}")
+                if row["user_notes"]:
+                    print(f"User notes: {row['user_notes']}")
+
+            while True:
+                action = input(
+                    "Action [a=accept, e=edit, d=delete, s=skip, q=quit]: "
+                ).strip()
+                if action in {"a", "e", "d", "s", "q"}:
+                    break
+
+            if action == "q":
+                return
+
+            if action == "s":
+                continue
+
+            now = _now_iso_utc()
+
+            if action == "a":
+                with conn:
+                    conn.execute(
+                        """
+                        UPDATE reviews
+                        SET review_status = ?, reviewed_at = COALESCE(reviewed_at, ?), updated_at = ?
+                        WHERE article_id = ?
+                        """,
+                        (REVIEW_STATUS_REVIEWED, now, now, int(row["id"])),
+                    )
+                continue
+
+            if action == "d":
+                confirm = input("Type 'delete' to confirm hard delete: ").strip()
+                if confirm != "delete":
+                    print("Cancelled.")
+                    continue
+
+                with conn:
+                    conn.execute("DELETE FROM articles WHERE id = ?", (int(row["id"]),))
+                print("Deleted.")
+                continue
+
+            if action == "e":
+                changed_fields: dict[str, Any] = {}
+
+                changed, title = _prompt_edit_field("Title", row["user_title"])
+                if changed:
+                    changed_fields["user_title"] = title
+
+                changed, category = _prompt_edit_field("Category", row["user_category"])
+                if changed:
+                    if category is not None and category.strip():
+                        category = category.strip()
+                        if category not in CATEGORY_OPTIONS:
+                            print(f"Invalid category: {category}. Keep unchanged.")
+                        else:
+                            changed_fields["user_category"] = category
+                    else:
+                        changed_fields["user_category"] = None
+
+                changed, summary = _prompt_edit_field("Summary", row["user_summary_zh"])
+                if changed:
+                    changed_fields["user_summary_zh"] = summary
+
+                changed, notes = _prompt_edit_field("Notes", row["user_notes"])
+                if changed:
+                    changed_fields["user_notes"] = notes
+
+                mark_reviewed = input("Mark reviewed now? [y/N]: ").strip().lower()
+                if mark_reviewed == "y":
+                    changed_fields["review_status"] = REVIEW_STATUS_REVIEWED
+                    changed_fields["reviewed_at"] = now
+
+                if not changed_fields:
+                    print("No changes.")
+                    continue
+
+                changed_fields["updated_at"] = now
+
+                set_clause = ", ".join(f"{key} = ?" for key in changed_fields)
+                values = list(changed_fields.values()) + [int(row["id"])]
+
+                with conn:
+                    conn.execute(
+                        f"UPDATE reviews SET {set_clause} WHERE article_id = ?",
+                        tuple(values),
+                    )
+
+
+def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Scrape EET-China news then classify & summarize with Qwen (JSONL). "
-            "Env: OPENAI_API_KEY required; OPENAI_BASE_URL optional (defaults to DashScope)."
+            "Scrape EET-China news into SQLite, then LLM classify & review. "
+            "Env: OPENAI_API_KEY required for llm/run; OPENAI_BASE_URL optional."
         )
     )
 
-    parser.add_argument("--pages", type=int, default=1, help="Number of list pages")
-    parser.add_argument("--limit", type=int, default=20, help="Max articles to process")
-    parser.add_argument("--out", default="out.jsonl", help="Output JSONL path")
-    parser.add_argument(
-        "--model", default="qwen-plus", help="Model name, e.g. qwen-plus"
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    sync_parser = subparsers.add_parser("sync", help="Scrape list page and upsert URLs")
+    sync_parser.add_argument("--db", default=DEFAULT_DB_PATH, help="SQLite DB path")
+    sync_parser.add_argument(
+        "--pages", type=int, default=1, help="Number of list pages"
     )
-    parser.add_argument(
+    sync_parser.add_argument(
         "--timeout-ms", type=int, default=20000, help="Navigation timeout"
     )
-    parser.add_argument("--delay", type=float, default=0.5, help="Seconds to wait")
-    parser.add_argument("--max-retries", type=int, default=3, help="LLM retry count")
-    parser.add_argument(
+    sync_parser.add_argument("--delay", type=float, default=0.5, help="Seconds to wait")
+    sync_parser.add_argument(
         "--headless",
         action="store_true",
         help="Run browser in headless mode (default is headful)",
     )
 
+    fetch_parser = subparsers.add_parser("fetch", help="Fetch article content into DB")
+    fetch_parser.add_argument("--db", default=DEFAULT_DB_PATH, help="SQLite DB path")
+    fetch_parser.add_argument(
+        "--limit", type=int, default=20, help="Max articles to fetch"
+    )
+    fetch_parser.add_argument(
+        "--timeout-ms", type=int, default=20000, help="Navigation timeout"
+    )
+    fetch_parser.add_argument(
+        "--delay", type=float, default=0.5, help="Seconds to wait"
+    )
+    fetch_parser.add_argument(
+        "--headless",
+        action="store_true",
+        help="Run browser in headless mode (default is headful)",
+    )
+
+    llm_parser = subparsers.add_parser("llm", help="Run LLM on fetched articles")
+    llm_parser.add_argument("--db", default=DEFAULT_DB_PATH, help="SQLite DB path")
+    llm_parser.add_argument(
+        "--limit", type=int, default=20, help="Max articles to process"
+    )
+    llm_parser.add_argument("--model", default="qwen-plus", help="Model name")
+    llm_parser.add_argument(
+        "--max-retries", type=int, default=3, help="LLM retry count"
+    )
+
+    run_parser = subparsers.add_parser("run", help="sync + fetch + llm")
+    run_parser.add_argument("--db", default=DEFAULT_DB_PATH, help="SQLite DB path")
+    run_parser.add_argument("--pages", type=int, default=1, help="Number of list pages")
+    run_parser.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="Max articles for fetch/llm (sync is not limited)",
+    )
+    run_parser.add_argument("--model", default="qwen-plus", help="Model name")
+    run_parser.add_argument(
+        "--timeout-ms", type=int, default=20000, help="Navigation timeout"
+    )
+    run_parser.add_argument("--delay", type=float, default=0.5, help="Seconds to wait")
+    run_parser.add_argument(
+        "--max-retries", type=int, default=3, help="LLM retry count"
+    )
+    run_parser.add_argument(
+        "--headless",
+        action="store_true",
+        help="Run browser in headless mode (default is headful)",
+    )
+
+    review_parser = subparsers.add_parser("review", help="Interactive review and edit")
+    review_parser.add_argument("--db", default=DEFAULT_DB_PATH, help="SQLite DB path")
+    review_parser.add_argument(
+        "--status",
+        default=REVIEW_STATUS_PENDING,
+        choices=(REVIEW_STATUS_PENDING, REVIEW_STATUS_REVIEWED),
+        help="Which review status to browse",
+    )
+    review_parser.add_argument(
+        "--limit", type=int, default=10, help="Max items per run"
+    )
+    review_parser.add_argument("--id", type=int, help="Review a single article id")
+
+    return parser
+
+
+def main() -> None:
+    load_dotenv()
+
+    parser = build_arg_parser()
     args = parser.parse_args()
 
-    pages = max(int(args.pages), 1)
-    limit = max(int(args.limit), 1)
-    timeout_ms = max(int(args.timeout_ms), 1000)
-    delay = max(float(args.delay), 0.0)
-    max_retries = max(int(args.max_retries), 0)
+    command = str(args.command)
 
-    try:
-        total = run_pipeline(
+    if command == "sync":
+        pages = max(int(args.pages), 1)
+        timeout_ms = max(int(args.timeout_ms), 1000)
+        delay = max(float(args.delay), 0.0)
+        cmd_sync(
+            db_path=str(args.db),
+            pages=pages,
+            timeout_ms=timeout_ms,
+            delay=delay,
+            headless=bool(args.headless),
+        )
+        return
+
+    if command == "fetch":
+        limit = max(int(args.limit), 1)
+        timeout_ms = max(int(args.timeout_ms), 1000)
+        delay = max(float(args.delay), 0.0)
+        cmd_fetch(
+            db_path=str(args.db),
+            limit=limit,
+            timeout_ms=timeout_ms,
+            delay=delay,
+            headless=bool(args.headless),
+        )
+        return
+
+    if command == "llm":
+        limit = max(int(args.limit), 1)
+        max_retries = max(int(args.max_retries), 0)
+        cmd_llm(
+            db_path=str(args.db),
+            limit=limit,
+            model=str(args.model),
+            max_retries=max_retries,
+        )
+        return
+
+    if command == "run":
+        pages = max(int(args.pages), 1)
+        limit = max(int(args.limit), 1)
+        timeout_ms = max(int(args.timeout_ms), 1000)
+        delay = max(float(args.delay), 0.0)
+        max_retries = max(int(args.max_retries), 0)
+        cmd_run(
+            db_path=str(args.db),
             pages=pages,
             limit=limit,
-            out_path=str(args.out),
             model=str(args.model),
             timeout_ms=timeout_ms,
             delay=delay,
             max_retries=max_retries,
             headless=bool(args.headless),
         )
-    except RuntimeError as e:
-        _eprint(str(e))
-        sys.exit(2)
+        return
 
-    print(f"Appended {total} records to {args.out}")
+    if command == "review":
+        cmd_review(
+            db_path=str(args.db),
+            status=str(args.status),
+            limit=max(int(args.limit), 1),
+            article_id=int(args.id) if args.id is not None else None,
+        )
+        return
+
+    raise RuntimeError(f"Unknown command: {command}")
 
 
 if __name__ == "__main__":

@@ -1,12 +1,11 @@
-# EET-China News Scraper
+# EET-China News Tracker
 
-一个使用 Playwright 和 BeautifulSoup 爬取 EET电子工程专辑 新闻的工具。
+一个用于长期追踪半导体产业链信息的工具：
 
-## 功能
-
-- **爬取新闻列表**：获取首页或指定页数的新闻列表
-- **爬取新闻详情**：抓取每篇文章的正文/作者等信息（默认启用）
-- **Qwen 处理**：对每篇新闻输出产业链单标签分类 + 中文客观摘要（优先 1 句，允许 1-3 句），并写入 `jsonl`
+- Playwright 抓取 EET电子工程专辑新闻
+- LLM（OpenAI 兼容接口，默认 DashScope/Qwen）做单标签分类 + 中文客观摘要
+- 本地 SQLite 持久化（去重 + review 状态 + 可编辑）
+- review 完成后生成全年周度汇总 `report.html`
 
 ## 安装依赖
 
@@ -14,77 +13,84 @@
 uv sync
 ```
 
-## 使用方法
-
-### 1. 环境变量
-
-- `OPENAI_API_KEY`：必填
-- `OPENAI_BASE_URL`：可选；默认 `https://dashscope.aliyuncs.com/compatible-mode/v1`
-
-### 2. 端到端：爬取 + Qwen 处理 + 输出 jsonl
-
-默认 headful（因为某些环境下 headless 不可用），输出 `out.jsonl`：
-
-```bash
-python main.py --pages 2 --limit 20 --model qwen-plus --out out.jsonl
-```
-
-如需启用 headless：
-
-```bash
-python main.py --pages 2 --limit 20 --model qwen-plus --out out.jsonl --headless
-```
-
-## 命令行参数
-
-- `--pages N`：爬取的页数（默认：1）
-- `--limit N`：最多处理多少篇新闻（默认：20）
-- `--out PATH`：输出 `jsonl` 路径（默认：`out.jsonl`）
-- `--model NAME`：模型名（默认：`qwen-plus`）
-- `--delay SECONDS`：页面加载后等待的秒数（默认：0.5）
-- `--timeout-ms MS`：导航超时时间，单位毫秒（默认：20000）
-- `--max-retries N`：LLM 调用重试次数（默认：3）
-- `--headless`：以无头模式运行浏览器（默认：非无头模式）
-
-## 数据结构
-
-### NewsItem
-
-列表中的每条新闻：
-
-- `title`：新闻标题
-- `url`：新闻链接
-- `date`：发布日期（可选）
-
-### NewsContent
-
-爬取的完整新闻内容：
-
-- `title`：新闻标题
-- `url`：新闻链接
-- `date`：发布日期
-- `content`：文章正文内容
-- `author`：作者信息（可选）
-- `source`：新闻来源（固定为"EET-China"）
-
-## 示例输出
-
-输出为 `jsonl`（每行一个 JSON 对象），示例：
-
-```json
-{"title":"...","url":"...","date":"...","author":"...","source":"EET-China","content":"...","category":"设备","summary_zh":"...","model":"qwen-plus","created_at":"2026-01-12T00:00:00+00:00","llm_base_url":"https://dashscope.aliyuncs.com/compatible-mode/v1"}
-```
-
-## 开发说明
-
-- 依赖：`beautifulsoup4`、`playwright`、`openai`
-- 如遇到 Playwright 报错缺浏览器，可执行：
+如遇到 Playwright 缺浏览器，可执行：
 
 ```bash
 python -m playwright install chromium
 ```
 
-- 运行单测：
+## 环境变量
+
+- `OPENAI_API_KEY`：必填（用于 `llm` / `run`）
+- `OPENAI_BASE_URL`：可选；默认 `https://dashscope.aliyuncs.com/compatible-mode/v1`
+
+## 数据存储
+
+默认使用 `data/semi_weekly.db`（SQLite）。仓库已在 `.gitignore` 忽略 `data/`，建议作为本地长期数据保存。
+
+## 推荐工作流（每周）
+
+1) 同步 + 抓正文 + 跑 LLM（默认只抓 1 页列表；`--limit` 只作用于 fetch/llm）：
+
+```bash
+uv run python main.py run --db data/semi_weekly.db --pages 1 --limit 20 --model qwen-plus
+```
+
+2) 交互式 review（默认处理 10 条 pending）：
+
+```bash
+uv run python main.py review --db data/semi_weekly.db
+```
+
+3) 生成全年周报（只包含已 review 的条目）：
+
+```bash
+uv run python report.py --db data/semi_weekly.db --out report.html --year 2026
+```
+
+## 命令说明
+
+### 1) `sync`
+
+仅抓取新闻列表并入库（按 `url` 去重，新条目自动标记为 `pending`）：
+
+```bash
+uv run python main.py sync --db data/semi_weekly.db --pages 1
+```
+
+### 2) `fetch`
+
+仅抓取正文（只处理 DB 里 `content` 为空的条目）：
+
+```bash
+uv run python main.py fetch --db data/semi_weekly.db --limit 20
+```
+
+### 3) `llm`
+
+仅对“已抓正文但还没跑过 LLM”的条目做分类+摘要：
+
+```bash
+uv run python main.py llm --db data/semi_weekly.db --limit 20 --model qwen-plus
+```
+
+### 4) `review`
+
+交互式 review/编辑/删除：
+
+- `a`：直接通过并标记为 `reviewed`
+- `e`：编辑（分类/摘要/标题/备注，可二次修改；输入 `-` 表示清空该字段）
+- `d`：硬删除（从 DB 删除，未来再次爬到同 URL 会重新入库）
+- `s`：跳过
+- `q`：退出
+
+也支持回头修改已 review 的条目：
+
+```bash
+uv run python main.py review --db data/semi_weekly.db --status reviewed
+```
+
+## 测试
 
 ```bash
 python -m unittest discover -s tests -p "test_*.py"

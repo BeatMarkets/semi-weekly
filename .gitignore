@@ -8,5 +8,16 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Secrets
+.env
+
+# Local data
+/data/
+*.db
+*.db-wal
+*.db-shm
+
+# Generated artifacts
 out.jsonl
 report.html

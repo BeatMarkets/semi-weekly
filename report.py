@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 import sys
 from collections import defaultdict
 from datetime import date
@@ -110,6 +111,43 @@ def read_jsonl(path: str) -> list[dict[str, Any]]:
             else:
                 _eprint(f"Invalid JSONL line (not object): {path}:{line_no}")
 
+    return records
+
+
+def read_db_records(path: str) -> list[dict[str, Any]]:
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+
+    rows = conn.execute(
+        """
+        SELECT
+          a.published_date AS date,
+          COALESCE(r.user_category, l.category, '其他') AS category,
+          COALESCE(r.user_summary_zh, l.summary_zh) AS summary_zh,
+          a.url AS url
+        FROM reviews r
+        JOIN articles a ON a.id = r.article_id
+        LEFT JOIN llm_results l ON l.article_id = a.id
+        WHERE r.review_status = 'reviewed'
+          AND a.published_date IS NOT NULL
+          AND a.published_date != ''
+          AND COALESCE(r.user_summary_zh, l.summary_zh) IS NOT NULL
+          AND COALESCE(r.user_summary_zh, l.summary_zh) != ''
+        """
+    ).fetchall()
+    conn.close()
+
+    records: list[dict[str, Any]] = []
+    for row in rows:
+        records.append(
+            {
+                "date": row["date"],
+                "category": row["category"],
+                "summary_zh": row["summary_zh"],
+                "url": row["url"],
+            }
+        )
     return records
 
 
@@ -290,7 +328,7 @@ body {
         parts.append("</section>")
 
     parts.append("</div>")
-    parts.append('<div class="footer">Generated from JSONL · Static HTML</div>')
+    parts.append('<div class="footer">Generated from SQLite/JSONL · Static HTML</div>')
     parts.append("</div>")
     parts.append("</body>")
     parts.append("</html>")
@@ -307,11 +345,24 @@ def generate_weekly_report(*, jsonl_path: str, html_path: str, year: int) -> int
     return total
 
 
+def generate_weekly_report_from_db(*, db_path: str, html_path: str, year: int) -> int:
+    records = read_db_records(db_path)
+    grouped, total = build_weekly_report_index(records, year=year)
+    html = render_weekly_report_html(grouped, year=year, total=total)
+    with open(html_path, "w", encoding="utf-8") as fp:
+        fp.write(html)
+    return total
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Generate a static weekly report HTML from JSONL (category + ISO week)."
+        description="Generate a static weekly report HTML from SQLite/JSONL (category + ISO week)."
     )
-    parser.add_argument("--in", dest="in_path", required=True, help="Input JSONL path")
+
+    source_group = parser.add_mutually_exclusive_group(required=True)
+    source_group.add_argument("--in", dest="in_path", help="Input JSONL path")
+    source_group.add_argument("--db", dest="db_path", help="Input SQLite DB path")
+
     parser.add_argument(
         "--out", dest="out_path", default="report.html", help="Output HTML path"
     )
@@ -325,11 +376,18 @@ def main() -> None:
 
     args = parser.parse_args()
     try:
-        total = generate_weekly_report(
-            jsonl_path=str(args.in_path),
-            html_path=str(args.out_path),
-            year=int(args.year),
-        )
+        if args.db_path:
+            total = generate_weekly_report_from_db(
+                db_path=str(args.db_path),
+                html_path=str(args.out_path),
+                year=int(args.year),
+            )
+        else:
+            total = generate_weekly_report(
+                jsonl_path=str(args.in_path),
+                html_path=str(args.out_path),
+                year=int(args.year),
+            )
     except Exception as e:  # noqa: BLE001
         _eprint(f"Failed to generate report: {e}")
         raise SystemExit(2) from e
