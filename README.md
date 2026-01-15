@@ -44,12 +44,6 @@ uv run uvicorn web_review:app --reload
 
 打开：`http://127.0.0.1:8000/?db=data/semi_weekly.db&year=2026`
 
-（可选）仍可使用终端交互式 review（默认处理 10 条 pending）：
-
-```bash
-uv run python main.py review --db data/semi_weekly.db
-```
-
 3) 生成全年周报（只包含已 review 的条目）：
 
 ```bash
@@ -80,22 +74,6 @@ uv run python main.py fetch --db data/semi_weekly.db --limit 20
 
 ```bash
 uv run python main.py llm --db data/semi_weekly.db --limit 20 --model qwen-plus
-```
-
-### 4) `review`
-
-交互式 review/编辑/删除：
-
-- `a`：直接通过并标记为 `reviewed`
-- `e`：编辑（分类/摘要/标题/备注，可二次修改；输入 `-` 表示清空该字段）
-- `d`：硬删除（从 DB 删除，未来再次爬到同 URL 会重新入库）
-- `s`：跳过
-- `q`：退出
-
-也支持回头修改已 review 的条目：
-
-```bash
-uv run python main.py review --db data/semi_weekly.db --status reviewed
 ```
 
 ## 测试
