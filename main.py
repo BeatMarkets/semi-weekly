@@ -510,9 +510,7 @@ def fetch_details(
     contents: list[NewsContent] = []
     items_list = list(items)
 
-    for idx, item in enumerate(items_list, start=1):
-        _eprint(f"[{idx}/{len(items_list)}] Fetching article: {item.title[:60]}")
-
+    for item in items_list:
         page = context.new_page()
         try:
             page.goto(item.url, wait_until="domcontentloaded", timeout=timeout_ms)
@@ -790,7 +788,8 @@ def cmd_fetch(
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=headless, args=["--disable-http2"])
         try:
-            for item in items:
+            for idx, item in enumerate(items, start=1):
+                _eprint(f"[{idx}/{len(items)}] Fetching article: {item.title[:60]}")
                 context = create_context(browser, user_agent=DEFAULT_USER_AGENT)
                 try:
                     details.extend(
