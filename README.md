@@ -36,7 +36,15 @@ python -m playwright install chromium
 uv run python main.py run --db data/semi_weekly.db --pages 1 --limit 20 --model qwen-plus
 ```
 
-2) 交互式 review（默认处理 10 条 pending）：
+2) Web 界面 review（推荐，支持内联编辑 + 高亮 pending）：
+
+```bash
+uv run uvicorn web_review:app --reload
+```
+
+打开：`http://127.0.0.1:8000/?db=data/semi_weekly.db&year=2026`
+
+（可选）仍可使用终端交互式 review（默认处理 10 条 pending）：
 
 ```bash
 uv run python main.py review --db data/semi_weekly.db
