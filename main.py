@@ -604,6 +604,11 @@ def ensure_db_schema(conn: sqlite3.Connection) -> None:
           FOREIGN KEY(article_id) REFERENCES articles(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS ignored_urls (
+          url TEXT PRIMARY KEY,
+          created_at TEXT NOT NULL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_reviews_status ON reviews(review_status);
         CREATE INDEX IF NOT EXISTS idx_articles_pubdate ON articles(published_date);
         """
@@ -647,6 +652,11 @@ def get_pending_review_total(conn: sqlite3.Connection) -> int:
         (REVIEW_STATUS_PENDING,),
     ).fetchone()
     return int(row["cnt"]) if row else 0
+
+
+def load_ignored_urls(conn: sqlite3.Connection) -> set[str]:
+    rows = conn.execute("SELECT url FROM ignored_urls").fetchall()
+    return {str(row["url"]) for row in rows}
 
 
 def upsert_article(
@@ -706,7 +716,7 @@ def cmd_sync(
     timeout_ms: int,
     delay: float,
     headless: bool,
-) -> tuple[int, int, int]:
+) -> tuple[int, int, int, int]:
     now = _now_iso_utc()
 
     with sync_playwright() as pw:
@@ -725,13 +735,18 @@ def cmd_sync(
 
     if not items:
         _eprint("No news items found.")
-        return 0, 0, 0
+        return 0, 0, 0, 0
 
     new_count = 0
     skipped_count = 0
+    ignored_count = 0
     with open_db(db_path) as conn:
+        ignored_urls = load_ignored_urls(conn)
         with conn:
             for item in items:
+                if item.url in ignored_urls:
+                    ignored_count += 1
+                    continue
                 _, is_new = upsert_article(conn, item=item, now=now)
                 if is_new:
                     new_count += 1
@@ -741,9 +756,11 @@ def cmd_sync(
         pending_total = get_pending_review_total(conn)
 
     _eprint(
-        f"sync done: new={new_count} skipped={skipped_count} pending_total={pending_total}"
+        "sync done: "
+        f"new={new_count} skipped={skipped_count} ignored={ignored_count} "
+        f"pending_total={pending_total}"
     )
-    return new_count, skipped_count, pending_total
+    return new_count, skipped_count, ignored_count, pending_total
 
 
 def cmd_fetch(
@@ -939,7 +956,7 @@ def cmd_run(
     max_retries: int,
     headless: bool,
 ) -> None:
-    new_count, skipped_count, _ = cmd_sync(
+    new_count, skipped_count, ignored_count, _ = cmd_sync(
         db_path=db_path,
         pages=pages,
         timeout_ms=timeout_ms,
@@ -965,7 +982,7 @@ def cmd_run(
 
     print(
         "run summary: "
-        f"new={new_count} skipped={skipped_count} "
+        f"new={new_count} skipped={skipped_count} ignored={ignored_count} "
         f"fetched={fetched} llm={llm_processed} pending_total={pending_total}"
     )
 

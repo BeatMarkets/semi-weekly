@@ -44,6 +44,8 @@ uv run uvicorn web_review:app --reload
 
 打开：`http://127.0.0.1:8000/?db=data/semi_weekly.db&year=2026`
 
+删除操作会把 URL 加入忽略列表，之后 sync 不会再入库或 fetch。
+
 3) 生成全年周报（只包含已 review 的条目）：
 
 ```bash

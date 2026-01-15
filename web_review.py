@@ -8,6 +8,7 @@ from typing import Any, Optional
 from fastapi import FastAPI, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+import main
 import report
 
 DEFAULT_DB_PATH = "data/semi_weekly.db"
@@ -39,6 +40,7 @@ def _open_db(db_path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    main.ensure_db_schema(conn)
     return conn
 
 
@@ -202,7 +204,7 @@ function toggleEdit(id) {
   el.style.display = (el.style.display === 'none' || el.style.display === '') ? 'block' : 'none';
 }
 function confirmDelete(id) {
-  if (!confirm('确定要硬删除这条记录吗？删除后未来再次抓到同URL会重新入库。')) return;
+  if (!confirm('确定要硬删除这条记录吗？删除后将加入忽略列表，不再入库/抓取。')) return;
   document.getElementById('del-' + id).submit();
 }
 """
@@ -468,6 +470,15 @@ def delete_item(item_id: int, db: str = DEFAULT_DB_PATH) -> RedirectResponse:
     conn = _open_db(db)
     try:
         with conn:
+            row = conn.execute(
+                "SELECT url FROM articles WHERE id = ?",
+                (item_id,),
+            ).fetchone()
+            if row and row["url"]:
+                conn.execute(
+                    "INSERT OR IGNORE INTO ignored_urls (url, created_at) VALUES (?, ?)",
+                    (str(row["url"]), _now_iso_utc()),
+                )
             conn.execute("DELETE FROM articles WHERE id = ?", (item_id,))
     finally:
         conn.close()
