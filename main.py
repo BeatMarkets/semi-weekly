@@ -1003,6 +1003,32 @@ def _prompt_edit_field(
     return True, entered
 
 
+def _prompt_category_choice(current: Optional[str]) -> tuple[bool, Optional[str]]:
+    current_display = _format_category(current)
+
+    print("Category options:")
+    for idx, category in enumerate(CATEGORY_OPTIONS, start=1):
+        print(f"  {idx}. {_format_category(category)}")
+
+    hint = f"Category [enter=keep, 0=clear, 1-{len(CATEGORY_OPTIONS)} select]"
+    prompt = f"{hint} [{current_display}]: "
+
+    while True:
+        entered = input(prompt).strip()
+        if not entered:
+            return False, None
+
+        if entered in {"0", "-"}:
+            return True, None
+
+        if entered.isdigit():
+            choice = int(entered)
+            if 1 <= choice <= len(CATEGORY_OPTIONS):
+                return True, CATEGORY_OPTIONS[choice - 1]
+
+        print("Invalid selection. Please enter a number from the list.")
+
+
 def cmd_review(
     *,
     db_path: str,
@@ -1112,16 +1138,9 @@ def cmd_review(
                 if changed:
                     changed_fields["user_title"] = title
 
-                changed, category = _prompt_edit_field("Category", row["user_category"])
+                changed, category = _prompt_category_choice(row["user_category"])
                 if changed:
-                    if category is not None and category.strip():
-                        category = category.strip()
-                        if category not in CATEGORY_OPTIONS:
-                            print(f"Invalid category: {category}. Keep unchanged.")
-                        else:
-                            changed_fields["user_category"] = category
-                    else:
-                        changed_fields["user_category"] = None
+                    changed_fields["user_category"] = category
 
                 changed, summary = _prompt_edit_field("Summary", row["user_summary_zh"])
                 if changed:
