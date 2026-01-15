@@ -668,12 +668,7 @@ def upsert_article(
           source, url, title, date_raw, published_date, author, content, content_fetched_at,
           created_at, updated_at, last_seen_at
         ) VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?)
-        ON CONFLICT(url) DO UPDATE SET
-          title = excluded.title,
-          date_raw = excluded.date_raw,
-          published_date = COALESCE(excluded.published_date, articles.published_date),
-          updated_at = excluded.updated_at,
-          last_seen_at = excluded.last_seen_at
+        ON CONFLICT(url) DO NOTHING
         """,
         (
             "EET-China",
@@ -733,7 +728,7 @@ def cmd_sync(
         return 0, 0, 0
 
     new_count = 0
-    updated_count = 0
+    skipped_count = 0
     with open_db(db_path) as conn:
         with conn:
             for item in items:
@@ -741,14 +736,14 @@ def cmd_sync(
                 if is_new:
                     new_count += 1
                 else:
-                    updated_count += 1
+                    skipped_count += 1
 
         pending_total = get_pending_review_total(conn)
 
     _eprint(
-        f"sync done: new={new_count} updated={updated_count} pending_total={pending_total}"
+        f"sync done: new={new_count} skipped={skipped_count} pending_total={pending_total}"
     )
-    return new_count, updated_count, pending_total
+    return new_count, skipped_count, pending_total
 
 
 def cmd_fetch(
@@ -944,7 +939,7 @@ def cmd_run(
     max_retries: int,
     headless: bool,
 ) -> None:
-    new_count, updated_count, _ = cmd_sync(
+    new_count, skipped_count, _ = cmd_sync(
         db_path=db_path,
         pages=pages,
         timeout_ms=timeout_ms,
@@ -970,7 +965,7 @@ def cmd_run(
 
     print(
         "run summary: "
-        f"new={new_count} updated={updated_count} "
+        f"new={new_count} skipped={skipped_count} "
         f"fetched={fetched} llm={llm_processed} pending_total={pending_total}"
     )
 
