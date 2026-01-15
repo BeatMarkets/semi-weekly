@@ -986,48 +986,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    sync_parser = subparsers.add_parser("sync", help="Scrape list page and upsert URLs")
-    sync_parser.add_argument("--db", default=DEFAULT_DB_PATH, help="SQLite DB path")
-    sync_parser.add_argument(
-        "--pages", type=int, default=1, help="Number of list pages"
-    )
-    sync_parser.add_argument(
-        "--timeout-ms", type=int, default=20000, help="Navigation timeout"
-    )
-    sync_parser.add_argument("--delay", type=float, default=0.5, help="Seconds to wait")
-    sync_parser.add_argument(
-        "--headless",
-        action="store_true",
-        help="Run browser in headless mode (default is headful)",
-    )
-
-    fetch_parser = subparsers.add_parser("fetch", help="Fetch article content into DB")
-    fetch_parser.add_argument("--db", default=DEFAULT_DB_PATH, help="SQLite DB path")
-    fetch_parser.add_argument(
-        "--limit", type=int, default=20, help="Max articles to fetch"
-    )
-    fetch_parser.add_argument(
-        "--timeout-ms", type=int, default=20000, help="Navigation timeout"
-    )
-    fetch_parser.add_argument(
-        "--delay", type=float, default=0.5, help="Seconds to wait"
-    )
-    fetch_parser.add_argument(
-        "--headless",
-        action="store_true",
-        help="Run browser in headless mode (default is headful)",
-    )
-
-    llm_parser = subparsers.add_parser("llm", help="Run LLM on fetched articles")
-    llm_parser.add_argument("--db", default=DEFAULT_DB_PATH, help="SQLite DB path")
-    llm_parser.add_argument(
-        "--limit", type=int, default=20, help="Max articles to process"
-    )
-    llm_parser.add_argument("--model", default="qwen-plus", help="Model name")
-    llm_parser.add_argument(
-        "--max-retries", type=int, default=3, help="LLM retry count"
-    )
-
     run_parser = subparsers.add_parser("run", help="sync + fetch + llm")
     run_parser.add_argument("--db", default=DEFAULT_DB_PATH, help="SQLite DB path")
     run_parser.add_argument("--pages", type=int, default=1, help="Number of list pages")
@@ -1061,43 +1019,6 @@ def main() -> None:
     args = parser.parse_args()
 
     command = str(args.command)
-
-    if command == "sync":
-        pages = max(int(args.pages), 1)
-        timeout_ms = max(int(args.timeout_ms), 1000)
-        delay = max(float(args.delay), 0.0)
-        cmd_sync(
-            db_path=str(args.db),
-            pages=pages,
-            timeout_ms=timeout_ms,
-            delay=delay,
-            headless=bool(args.headless),
-        )
-        return
-
-    if command == "fetch":
-        limit = max(int(args.limit), 1)
-        timeout_ms = max(int(args.timeout_ms), 1000)
-        delay = max(float(args.delay), 0.0)
-        cmd_fetch(
-            db_path=str(args.db),
-            limit=limit,
-            timeout_ms=timeout_ms,
-            delay=delay,
-            headless=bool(args.headless),
-        )
-        return
-
-    if command == "llm":
-        limit = max(int(args.limit), 1)
-        max_retries = max(int(args.max_retries), 0)
-        cmd_llm(
-            db_path=str(args.db),
-            limit=limit,
-            model=str(args.model),
-            max_retries=max_retries,
-        )
-        return
 
     if command == "run":
         pages = max(int(args.pages), 1)

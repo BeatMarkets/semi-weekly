@@ -52,28 +52,10 @@ uv run python report.py --db data/semi_weekly.db --out report.html --year 2026
 
 ## 命令说明
 
-### 1) `sync`
-
-仅抓取新闻列表并入库（按 `url` 去重，新条目自动标记为 `pending`）：
+仅保留一条一键 pipeline 命令：
 
 ```bash
-uv run python main.py sync --db data/semi_weekly.db --pages 1
-```
-
-### 2) `fetch`
-
-仅抓取正文（只处理 DB 里 `content` 为空的条目）：
-
-```bash
-uv run python main.py fetch --db data/semi_weekly.db --limit 20
-```
-
-### 3) `llm`
-
-仅对“已抓正文但还没跑过 LLM”的条目做分类+摘要：
-
-```bash
-uv run python main.py llm --db data/semi_weekly.db --limit 20 --model qwen-plus
+uv run python main.py run --db data/semi_weekly.db --pages 1 --limit 20 --model qwen-plus
 ```
 
 ## 测试
