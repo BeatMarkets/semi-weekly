@@ -203,10 +203,20 @@ function toggleEdit(id) {
   if (!el) return;
   el.style.display = (el.style.display === 'none' || el.style.display === '') ? 'block' : 'none';
 }
+function restoreScrollPosition() {
+  const saved = sessionStorage.getItem('review-scroll');
+  if (!saved) return;
+  const value = Number.parseInt(saved, 10);
+  if (Number.isNaN(value)) return;
+  window.scrollTo(0, value);
+  sessionStorage.removeItem('review-scroll');
+}
 function confirmDelete(id) {
   if (!confirm('确定要硬删除这条记录吗？删除后将加入忽略列表，不再入库/抓取。')) return;
+  sessionStorage.setItem('review-scroll', String(window.scrollY));
   document.getElementById('del-' + id).submit();
 }
+window.addEventListener('load', restoreScrollPosition);
 """
 
     parts: list[str] = []
