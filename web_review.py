@@ -288,11 +288,12 @@ function confirmDelete(id) {
                     f'<button class="btn" type="button" onclick="toggleEdit({item_id})">编辑</button>'
                 )
 
-                parts.append(
-                    f'<form method="post" action="/item/{item_id}/approve" style="margin:0">'
-                    f'<button class="btn btn-primary" type="submit">通过</button>'
-                    "</form>"
-                )
+                if is_pending:
+                    parts.append(
+                        f'<form method="post" action="/item/{item_id}/approve" style="margin:0">'
+                        f'<button class="btn btn-primary" type="submit">通过</button>'
+                        "</form>"
+                    )
 
                 parts.append(
                     f'<form id="del-{item_id}" method="post" action="/item/{item_id}/delete" style="margin:0">'
