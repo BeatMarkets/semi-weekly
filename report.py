@@ -263,7 +263,7 @@ body {
   display: block;
   line-height: 1.55;
 }
-.items a:hover { color: var(--blue); text-decoration: underline; }
+.items a:hover { color: var(--text); text-decoration: none; }
 .footer { margin-top: 22px; color: var(--muted); font-size: 12px; }
 """
 
