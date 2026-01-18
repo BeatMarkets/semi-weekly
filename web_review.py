@@ -216,6 +216,26 @@ function confirmDelete(id) {
   sessionStorage.setItem('review-scroll', String(window.scrollY));
   document.getElementById('del-' + id).submit();
 }
+function copySummary(text) {
+  if (!text) return;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).catch(() => {});
+  } else {
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.style.position = 'fixed';
+    area.style.left = '-9999px';
+    document.body.appendChild(area);
+    area.focus();
+    area.select();
+    try {
+      document.execCommand('copy');
+    } catch (_) {
+      // ignore
+    }
+    document.body.removeChild(area);
+  }
+}
 window.addEventListener('load', restoreScrollPosition);
 """
 
@@ -301,6 +321,9 @@ window.addEventListener('load', restoreScrollPosition);
                 parts.append('<div class="item-actions">')
                 parts.append(
                     f'<button class="btn" type="button" onclick="toggleEdit({item_id})">编辑</button>'
+                )
+                parts.append(
+                    f'<button class="btn" type="button" onclick="copySummary({summary!r})">复制</button>'
                 )
 
                 if is_pending:
