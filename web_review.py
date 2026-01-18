@@ -394,9 +394,6 @@ window.addEventListener('load', restoreScrollPosition);
                     '<button class="btn" type="submit" name="action" value="save">保存</button>'
                 )
                 parts.append(
-                    '<button class="btn btn-primary" type="submit" name="action" value="save_approve">保存并通过</button>'
-                )
-                parts.append(
                     f'<button class="btn" type="button" onclick="toggleEdit({item_id})">取消</button>'
                 )
                 parts.append("</div>")
