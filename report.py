@@ -314,11 +314,7 @@ body {
                 url = str(item.get("url", "")).strip()
                 if url:
                     safe_url = html_escape(url)
-                    parts.append(
-                        "<li>"
-                        f'<a href="{safe_url}" target="_blank" rel="noopener noreferrer">{summary}</a>'
-                        "</li>"
-                    )
+                    parts.append(f'<li><a href="{safe_url}">{summary}</a></li>')
                 else:
                     parts.append(f"<li>{summary}</li>")
 
