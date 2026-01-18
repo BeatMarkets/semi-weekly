@@ -289,6 +289,11 @@ window.addEventListener('load', restoreScrollPosition);
                 parts.append(
                     f'<div class="muted">{html_escape(item["date"])} · {_format_category(final_category)} · {html_escape(status)}</div>'
                 )
+                notes = item.get("user_notes")
+                if notes:
+                    parts.append(
+                        f'<div class="muted">备注：{html_escape(str(notes))}</div>'
+                    )
                 parts.append("</div>")
 
                 parts.append("</div>")
