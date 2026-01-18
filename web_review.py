@@ -236,6 +236,10 @@ function copySummary(text) {
     document.body.removeChild(area);
   }
 }
+function moveToPending(id) {
+  sessionStorage.setItem('review-scroll', String(window.scrollY));
+  document.getElementById('pending-' + id).submit();
+}
 window.addEventListener('load', restoreScrollPosition);
 """
 
@@ -330,6 +334,12 @@ window.addEventListener('load', restoreScrollPosition);
                     parts.append(
                         f'<form method="post" action="/item/{item_id}/approve" style="margin:0">'
                         f'<button class="btn btn-primary" type="submit">通过</button>'
+                        "</form>"
+                    )
+                else:
+                    parts.append(
+                        f'<form id="pending-{item_id}" method="post" action="/item/{item_id}/pending" style="margin:0">'
+                        f'<button class="btn" type="button" onclick="moveToPending({item_id})">撤回</button>'
                         "</form>"
                     )
 
@@ -497,6 +507,26 @@ def approve_item(item_id: int, db: str = DEFAULT_DB_PATH) -> RedirectResponse:
                 WHERE article_id = ?
                 """,
                 (now, now, item_id),
+            )
+    finally:
+        conn.close()
+
+    return RedirectResponse(url=f"/#item-{item_id}", status_code=303)
+
+
+@app.post("/item/{item_id}/pending")
+def move_item_to_pending(item_id: int, db: str = DEFAULT_DB_PATH) -> RedirectResponse:
+    now = _now_iso_utc()
+    conn = _open_db(db)
+    try:
+        with conn:
+            conn.execute(
+                """
+                UPDATE reviews
+                SET review_status = 'pending', reviewed_at = NULL, updated_at = ?
+                WHERE article_id = ?
+                """,
+                (now, item_id),
             )
     finally:
         conn.close()
