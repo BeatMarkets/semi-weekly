@@ -98,11 +98,16 @@ def _fetch_items(conn: sqlite3.Connection, *, year: int) -> list[dict[str, Any]]
             }
         )
 
-    related_map = _fetch_related_map(conn, [int(item["id"]) for item in items])
-    for item in items:
+    linked_target_ids = _fetch_linked_target_ids(
+        conn, [int(item["id"]) for item in items]
+    )
+    visible_items = [item for item in items if int(item["id"]) not in linked_target_ids]
+
+    related_map = _fetch_related_map(conn, [int(item["id"]) for item in visible_items])
+    for item in visible_items:
         item["related"] = related_map.get(int(item["id"]), [])
 
-    return items
+    return visible_items
 
 
 def _fetch_related_map(
@@ -167,6 +172,25 @@ def _fetch_related_map(
         )
 
     return related_map
+
+
+def _fetch_linked_target_ids(
+    conn: sqlite3.Connection, article_ids: list[int]
+) -> set[int]:
+    if not article_ids:
+        return set()
+
+    placeholders = ",".join(["?"] * len(article_ids))
+    rows = conn.execute(
+        f"""
+        SELECT DISTINCT to_article_id AS to_id
+        FROM article_links
+        WHERE to_article_id IN ({placeholders})
+        """,
+        article_ids,
+    ).fetchall()
+
+    return {int(row["to_id"]) for row in rows if isinstance(row["to_id"], int)}
 
 
 def _group_items(

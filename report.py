@@ -195,7 +195,10 @@ def _normalize_report_record(
 
 
 def build_weekly_report_index(
-    records: Iterable[dict[str, Any]], *, year: int
+    records: Iterable[dict[str, Any]],
+    *,
+    year: int,
+    exclude_article_ids: Optional[set[int]] = None,
 ) -> tuple[dict[str, dict[int, list[dict[str, Any]]]], int]:
     grouped: dict[str, dict[int, list[dict[str, Any]]]] = defaultdict(
         lambda: defaultdict(list)
@@ -203,6 +206,13 @@ def build_weekly_report_index(
     kept = 0
 
     for record in records:
+        article_id = record.get("article_id")
+        if (
+            exclude_article_ids
+            and isinstance(article_id, int)
+            and article_id in exclude_article_ids
+        ):
+            continue
         normalized = _normalize_report_record(record, year=year)
         if not normalized:
             continue
@@ -271,6 +281,27 @@ def build_related_map(*, db_path: str, year: int) -> dict[int, list[dict[str, An
         )
 
     return related_map
+
+
+def build_linked_target_ids(*, db_path: str, year: int) -> set[int]:
+    start = f"{year:04d}-01-01"
+    end = f"{year + 1:04d}-01-01"
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    rows = conn.execute(
+        """
+        SELECT DISTINCT a_to.id AS to_id
+        FROM article_links al
+        JOIN articles a_to ON a_to.id = al.to_article_id
+        WHERE a_to.published_date >= ? AND a_to.published_date < ?
+        """,
+        (start, end),
+    ).fetchall()
+    conn.close()
+
+    return {int(row["to_id"]) for row in rows if isinstance(row["to_id"], int)}
 
 
 def render_weekly_report_html(
@@ -472,7 +503,10 @@ def generate_weekly_report(*, jsonl_path: str, html_path: str, year: int) -> int
 
 def generate_weekly_report_from_db(*, db_path: str, html_path: str, year: int) -> int:
     records = read_db_records(db_path)
-    grouped, total = build_weekly_report_index(records, year=year)
+    linked_target_ids = build_linked_target_ids(db_path=db_path, year=year)
+    grouped, total = build_weekly_report_index(
+        records, year=year, exclude_article_ids=linked_target_ids
+    )
     related_map = build_related_map(db_path=db_path, year=year)
     html = render_weekly_report_html(
         grouped, year=year, total=total, related_map=related_map

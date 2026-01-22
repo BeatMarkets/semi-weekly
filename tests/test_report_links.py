@@ -102,7 +102,7 @@ class TestReportLinks(unittest.TestCase):
                 html = fp.read()
 
             self.assertIn("related-list", html)
-            self.assertIn("关联事件", html)
+            self.assertEqual(html.count("关联事件"), 1)
 
 
 if __name__ == "__main__":
