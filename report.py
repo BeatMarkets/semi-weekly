@@ -345,7 +345,6 @@ body {
   padding-left: 12px;
   border-left: 2px solid #eef1f6;
   color: var(--muted);
-  font-size: 13px;
   display: grid;
   gap: 6px;
 }
