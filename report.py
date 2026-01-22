@@ -122,7 +122,9 @@ def read_db_records(path: str) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
         SELECT
+          a.id AS article_id,
           a.published_date AS date,
+          a.title AS title,
           COALESCE(r.user_category, l.category, '其他') AS category,
           COALESCE(r.user_summary_zh, l.summary_zh) AS summary_zh,
           a.url AS url
@@ -142,7 +144,9 @@ def read_db_records(path: str) -> list[dict[str, Any]]:
     for row in rows:
         records.append(
             {
+                "article_id": row["article_id"],
                 "date": row["date"],
+                "title": row["title"],
                 "category": row["category"],
                 "summary_zh": row["summary_zh"],
                 "url": row["url"],
@@ -173,12 +177,19 @@ def _normalize_report_record(
         category = "其他"
 
     week = int(parsed_date.isocalendar().week)
+    article_id_raw = obj.get("article_id")
+    article_id = int(article_id_raw) if isinstance(article_id_raw, int) else None
+
+    title_raw = obj.get("title")
+    title = _normalize_whitespace(title_raw) if isinstance(title_raw, str) else ""
 
     return {
+        "article_id": article_id,
         "category": category,
         "week": week,
         "date": parsed_date,
         "summary": summary,
+        "title": title,
         "url": url,
     }
 
@@ -201,8 +212,73 @@ def build_weekly_report_index(
     return grouped, kept
 
 
+def build_related_map(*, db_path: str, year: int) -> dict[int, list[dict[str, Any]]]:
+    start = f"{year:04d}-01-01"
+    end = f"{year + 1:04d}-01-01"
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    rows = conn.execute(
+        """
+        SELECT
+          al.from_article_id AS from_id,
+          a_to.id AS to_id,
+          a_to.url AS url,
+          a_to.title AS title,
+          a_to.published_date AS date,
+          COALESCE(r.user_summary_zh, l.summary_zh) AS summary_zh
+        FROM article_links al
+        JOIN articles a_from ON a_from.id = al.from_article_id
+        JOIN articles a_to ON a_to.id = al.to_article_id
+        LEFT JOIN reviews r ON r.article_id = a_to.id
+        LEFT JOIN llm_results l ON l.article_id = a_to.id
+        WHERE a_from.published_date >= ? AND a_from.published_date < ?
+        ORDER BY a_to.published_date DESC, a_to.id DESC
+        """,
+        (start, end),
+    ).fetchall()
+    conn.close()
+
+    related_map: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        from_id = row["from_id"]
+        if not isinstance(from_id, int):
+            continue
+
+        summary_raw = row["summary_zh"]
+        summary = (
+            _normalize_whitespace(summary_raw) if isinstance(summary_raw, str) else ""
+        )
+
+        title_raw = row["title"]
+        title = _normalize_whitespace(title_raw) if isinstance(title_raw, str) else ""
+
+        if not summary and not title:
+            continue
+
+        parsed_date = _parse_iso_date(row["date"])
+        week = int(parsed_date.isocalendar().week) if parsed_date else None
+        related_map[from_id].append(
+            {
+                "article_id": row["to_id"],
+                "url": row["url"],
+                "date": row["date"],
+                "week": week,
+                "summary": summary,
+                "title": title,
+            }
+        )
+
+    return related_map
+
+
 def render_weekly_report_html(
-    grouped: dict[str, dict[int, list[dict[str, Any]]]], *, year: int, total: int
+    grouped: dict[str, dict[int, list[dict[str, Any]]]],
+    *,
+    year: int,
+    total: int,
+    related_map: Optional[dict[int, list[dict[str, Any]]]] = None,
 ) -> str:
     title = f"{year} 半导体产业周报"
     subtitle = "按产业链分类 · 按全年周汇总"
@@ -264,6 +340,26 @@ body {
   line-height: 1.55;
 }
 .items a:hover { color: var(--text); text-decoration: none; }
+.related-list {
+  margin: 8px 0 0 14px;
+  padding-left: 12px;
+  border-left: 2px solid #eef1f6;
+  color: var(--muted);
+  font-size: 13px;
+  display: grid;
+  gap: 6px;
+}
+.related-item {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  line-height: 1.4;
+}
+.related-badge {
+  font-weight: 700;
+  color: var(--muted);
+  min-width: 36px;
+}
 .footer { margin-top: 22px; color: var(--muted); font-size: 12px; }
 """
 
@@ -312,11 +408,45 @@ body {
             for item in items:
                 summary = html_escape(str(item.get("summary", "")))
                 url = str(item.get("url", "")).strip()
+                article_id = item.get("article_id")
                 if url:
                     safe_url = html_escape(url)
-                    parts.append(f'<li><a href="{safe_url}">{summary}</a></li>')
+                    parts.append(f'<li><a href="{safe_url}">{summary}</a>')
                 else:
-                    parts.append(f"<li>{summary}</li>")
+                    parts.append(f"<li>{summary}")
+
+                if (
+                    related_map
+                    and isinstance(article_id, int)
+                    and related_map.get(article_id)
+                ):
+                    parts.append('<div class="related-list">')
+                    for related in related_map[article_id]:
+                        related_summary = html_escape(
+                            str(related.get("summary") or related.get("title") or "")
+                        )
+                        related_url = str(related.get("url", "")).strip()
+                        week_value = related.get("week")
+                        badge = (
+                            _format_week_badge(int(week_value))
+                            if isinstance(week_value, int)
+                            else "W??"
+                        )
+                        parts.append('<div class="related-item">')
+                        parts.append(
+                            f'<div class="related-badge">{html_escape(badge)}</div>'
+                        )
+                        if related_url:
+                            safe_related_url = html_escape(related_url)
+                            parts.append(
+                                f'<a href="{safe_related_url}">{related_summary}</a>'
+                            )
+                        else:
+                            parts.append(related_summary)
+                        parts.append("</div>")
+                    parts.append("</div>")
+
+                parts.append("</li>")
 
             parts.append("</ul>")
 
@@ -344,7 +474,10 @@ def generate_weekly_report(*, jsonl_path: str, html_path: str, year: int) -> int
 def generate_weekly_report_from_db(*, db_path: str, html_path: str, year: int) -> int:
     records = read_db_records(db_path)
     grouped, total = build_weekly_report_index(records, year=year)
-    html = render_weekly_report_html(grouped, year=year, total=total)
+    related_map = build_related_map(db_path=db_path, year=year)
+    html = render_weekly_report_html(
+        grouped, year=year, total=total, related_map=related_map
+    )
     with open(html_path, "w", encoding="utf-8") as fp:
         fp.write(html)
     return total

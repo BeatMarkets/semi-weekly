@@ -98,7 +98,75 @@ def _fetch_items(conn: sqlite3.Connection, *, year: int) -> list[dict[str, Any]]
             }
         )
 
+    related_map = _fetch_related_map(conn, [int(item["id"]) for item in items])
+    for item in items:
+        item["related"] = related_map.get(int(item["id"]), [])
+
     return items
+
+
+def _fetch_related_map(
+    conn: sqlite3.Connection, article_ids: list[int]
+) -> dict[int, list[dict[str, Any]]]:
+    if not article_ids:
+        return {}
+
+    placeholders = ",".join(["?"] * len(article_ids))
+    rows = conn.execute(
+        f"""
+        SELECT
+          al.from_article_id AS from_id,
+          a.id AS to_id,
+          a.url AS url,
+          a.title AS title,
+          a.published_date AS date,
+          r.review_status AS review_status,
+          COALESCE(r.user_summary_zh, l.summary_zh) AS summary_zh
+        FROM article_links al
+        JOIN articles a ON a.id = al.to_article_id
+        LEFT JOIN reviews r ON r.article_id = a.id
+        LEFT JOIN llm_results l ON l.article_id = a.id
+        WHERE al.from_article_id IN ({placeholders})
+        ORDER BY a.published_date DESC, a.id DESC
+        """,
+        article_ids,
+    ).fetchall()
+
+    related_map: dict[int, list[dict[str, Any]]] = {}
+    for row in rows:
+        from_id = row["from_id"]
+        if not isinstance(from_id, int):
+            continue
+
+        date_value = row["date"]
+        week_value: Optional[int] = None
+        if isinstance(date_value, str) and date_value:
+            try:
+                parsed = date.fromisoformat(date_value)
+                week_value = int(parsed.isocalendar().week)
+            except ValueError:
+                week_value = None
+
+        summary_raw = row["summary_zh"]
+        summary = summary_raw.strip() if isinstance(summary_raw, str) else ""
+        title_raw = row["title"]
+        title = title_raw.strip() if isinstance(title_raw, str) else ""
+        final_summary = summary or title
+        if not final_summary:
+            continue
+
+        related_map.setdefault(from_id, []).append(
+            {
+                "id": row["to_id"],
+                "url": row["url"],
+                "date": date_value,
+                "week": week_value,
+                "review_status": row["review_status"],
+                "summary": final_summary,
+            }
+        )
+
+    return related_map
 
 
 def _group_items(
@@ -195,6 +263,27 @@ def render_review_html(
   align-items: flex-start;
 }
 .summary-text { flex: 1; }
+.related-actions {
+  margin-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+.related-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.related-form input[type="text"] {
+  flex: 1;
+}
+.related-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.related-row .btn {
+  padding: 4px 8px;
+}
 """
 
     js = """
@@ -318,6 +407,30 @@ window.addEventListener('load', restoreScrollPosition);
                     parts.append(
                         f'<div class="muted">备注：{html_escape(str(notes))}</div>'
                     )
+                related_items = item.get("related") or []
+                if related_items:
+                    parts.append('<div class="related-list">')
+                    for related in related_items:
+                        related_summary = html_escape(str(related.get("summary") or ""))
+                        related_url = html_escape(str(related.get("url") or ""))
+                        related_week = related.get("week")
+                        badge = (
+                            report._format_week_badge(int(related_week))
+                            if isinstance(related_week, int)
+                            else "W??"
+                        )
+                        parts.append('<div class="related-item">')
+                        parts.append(
+                            f'<div class="related-badge">{html_escape(badge)}</div>'
+                        )
+                        if related_url:
+                            parts.append(
+                                f'<a href="{related_url}" target="_blank" rel="noopener noreferrer">{related_summary}</a>'
+                            )
+                        else:
+                            parts.append(related_summary)
+                        parts.append("</div>")
+                    parts.append("</div>")
                 parts.append("</div>")
 
                 parts.append("</div>")
@@ -411,6 +524,43 @@ window.addEventListener('load', restoreScrollPosition);
                     parts.append("</div>")
 
                 parts.append("</form>")
+
+                parts.append('<label class="related-label">关联事件</label>')
+                parts.append('<div class="related-actions">')
+                parts.append(
+                    f'<form class="related-form" method="post" action="/item/{item_id}/link" style="margin:0">'
+                    '<input type="text" name="target_url" placeholder="粘贴要关联的事件 URL" />'
+                    '<button class="btn" type="submit">添加关联</button>'
+                    "</form>"
+                )
+                related_items = item.get("related") or []
+                for related in related_items:
+                    related_summary = html_escape(str(related.get("summary") or ""))
+                    related_url = html_escape(str(related.get("url") or ""))
+                    related_week = related.get("week")
+                    badge = (
+                        report._format_week_badge(int(related_week))
+                        if isinstance(related_week, int)
+                        else "W??"
+                    )
+                    parts.append('<div class="related-row">')
+                    if related_url:
+                        parts.append(
+                            f'<div class="muted">{html_escape(badge)} · <a href="{related_url}" target="_blank" rel="noopener noreferrer">{related_summary}</a></div>'
+                        )
+                    else:
+                        parts.append(
+                            f'<div class="muted">{html_escape(badge)} · {related_summary}</div>'
+                        )
+                    parts.append(
+                        f'<form method="post" action="/item/{item_id}/unlink" style="margin:0">'
+                        f'<input type="hidden" name="to_article_id" value="{html_escape(str(related.get("id") or ""))}" />'
+                        '<button class="btn" type="submit">移除</button>'
+                        "</form>"
+                    )
+                    parts.append("</div>")
+                parts.append("</div>")
+
                 parts.append("</div>")
 
                 parts.append("</div>")
@@ -550,3 +700,66 @@ def delete_item(item_id: int, db: str = DEFAULT_DB_PATH) -> RedirectResponse:
         conn.close()
 
     return RedirectResponse(url="/", status_code=303)
+
+
+@app.post("/item/{item_id}/link")
+def link_item(
+    item_id: int,
+    db: str = DEFAULT_DB_PATH,
+    target_url: str = Form(""),
+) -> RedirectResponse:
+    url = target_url.strip()
+    if not url:
+        return RedirectResponse(url=f"/#item-{item_id}", status_code=303)
+
+    now = _now_iso_utc()
+    conn = _open_db(db)
+    try:
+        row = conn.execute(
+            "SELECT id FROM articles WHERE url = ?",
+            (url,),
+        ).fetchone()
+        if not row:
+            return RedirectResponse(url=f"/#item-{item_id}", status_code=303)
+
+        to_id = int(row["id"])
+        if to_id == item_id:
+            return RedirectResponse(url=f"/#item-{item_id}", status_code=303)
+
+        with conn:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO article_links (
+                  from_article_id, to_article_id, relation, note, created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (item_id, to_id, "related", None, now),
+            )
+    finally:
+        conn.close()
+
+    return RedirectResponse(url=f"/#item-{item_id}", status_code=303)
+
+
+@app.post("/item/{item_id}/unlink")
+def unlink_item(
+    item_id: int,
+    db: str = DEFAULT_DB_PATH,
+    to_article_id: str = Form(""),
+) -> RedirectResponse:
+    try:
+        target_id = int(to_article_id)
+    except (TypeError, ValueError):
+        return RedirectResponse(url=f"/#item-{item_id}", status_code=303)
+
+    conn = _open_db(db)
+    try:
+        with conn:
+            conn.execute(
+                "DELETE FROM article_links WHERE from_article_id = ? AND to_article_id = ?",
+                (item_id, target_id),
+            )
+    finally:
+        conn.close()
+
+    return RedirectResponse(url=f"/#item-{item_id}", status_code=303)

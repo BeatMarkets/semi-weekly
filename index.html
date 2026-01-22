@@ -61,6 +61,26 @@ body {
   line-height: 1.55;
 }
 .items a:hover { color: var(--text); text-decoration: none; }
+.related-list {
+  margin: 8px 0 0 14px;
+  padding-left: 12px;
+  border-left: 2px solid #eef1f6;
+  color: var(--muted);
+  font-size: 13px;
+  display: grid;
+  gap: 6px;
+}
+.related-item {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  line-height: 1.4;
+}
+.related-badge {
+  font-weight: 700;
+  color: var(--muted);
+  min-width: 36px;
+}
 .footer { margin-top: 22px; color: var(--muted); font-size: 12px; }
 </style>
 </head>
@@ -79,8 +99,10 @@ body {
 <div class="label">第三周</div>
 </div>
 <ul class="items">
-<li><a href="https://www.eet-china.com/news/202601159085.html">西门子收购法国PCB测试软件企业ASTER Technologies</a></li>
-<li><a href="https://www.eet-china.com/news/202601152940.html">格芯宣布从新思科技收购ARC处理器IP业务，包括ARC-V（RISC-V）、CPU、DSP、NPU等IP产品组合及相关开发工具，旨在整合MIPS与ARC技术，强化其在物理AI领域的端到端解决方案能力。</a></li>
+<li><a href="https://www.eet-china.com/news/202601159085.html">西门子收购法国PCB测试软件企业ASTER Technologies</a>
+</li>
+<li><a href="https://www.eet-china.com/news/202601152940.html">格芯宣布从新思科技收购ARC处理器IP业务，包括ARC-V（RISC-V）、CPU、DSP、NPU等IP产品组合及相关开发工具，旨在整合MIPS与ARC技术，强化其在物理AI领域的端到端解决方案能力。</a>
+</li>
 </ul>
 </div>
 </section>
@@ -92,35 +114,52 @@ body {
 <div class="label">第四周</div>
 </div>
 <ul class="items">
-<li><a href="https://www.eet-china.com/news/202601201351.html">盈方微终止收购时擎智能，转而聚焦收购上海肖克利和富士德中国100%股权，主因未能与时擎智能部分股东达成一致。</a></li>
-<li><a href="https://www.eet-china.com/news/202601208785.html">中微半导推出首款4M bit容量的低功耗NOR Flash芯片。</a></li>
+<li><a href="https://www.eet-china.com/news/202601201351.html">盈方微终止收购时擎智能，转而聚焦收购上海肖克利和富士德中国100%股权，主因未能与时擎智能部分股东达成一致。</a>
+<div class="related-list">
+<div class="related-item">
+<div class="related-badge">W02</div>
+<a href="https://www.eet-china.com/news/202601069960.html">盈方微筹划通过发行股份和/或支付现金方式，打包收购上海肖克利、富士德中国及时擎智能三家企业的控股权，旨在补强芯片设计与供应链服务能力，其中时擎智能专注于RISC-V架构的边端智能芯片设计，协同公司Fabless模式下的技术布局。</a>
+</div>
+</div>
+</li>
+<li><a href="https://www.eet-china.com/news/202601208785.html">中微半导推出首款4M bit容量的低功耗NOR Flash芯片。</a>
+</li>
 </ul>
 <div class="week">
 <div class="badge">W03</div>
 <div class="label">第三周</div>
 </div>
 <ul class="items">
-<li><a href="https://www.eet-china.com/news/202601148313.html">NVIDIA通过6颗芯片的协同设计（co-design），包括CPU、GPU、NIC、DPU、NVLink Switch和CPO以太网交换芯片，在晶体管数量增加1.7倍的基础上，实现AI训练性能提升3.5倍、推理性能提升5倍的系统级优化。</a></li>
-<li><a href="https://www.eet-china.com/news/202601137574.html">兆易创新作为国内存储芯片与MCU设计龙头，于2026年1月13日登陆港交所，募资约46.84亿港元</a></li>
-<li><a href="https://www.eet-china.com/news/202601128118.html">移远通信推出搭载高通3nm工艺Q-8750处理器的新一代智能模组SP895BD-AP，集成77TOPS算力NPU、Adreno 830 GPU和异构计算架构，面向高端AIoT场景提供高性能、低功耗的端侧AI硬件解决方案。</a></li>
-<li><a href="https://www.eet-china.com/news/202601129306.html">闪迪要求下游客户支付100%现金预付款以锁定未来1至3年SSD配额，并计划大幅上调企业级SSD价格。</a></li>
+<li><a href="https://www.eet-china.com/news/202601148313.html">NVIDIA通过6颗芯片的协同设计（co-design），包括CPU、GPU、NIC、DPU、NVLink Switch和CPO以太网交换芯片，在晶体管数量增加1.7倍的基础上，实现AI训练性能提升3.5倍、推理性能提升5倍的系统级优化。</a>
+</li>
+<li><a href="https://www.eet-china.com/news/202601137574.html">兆易创新作为国内存储芯片与MCU设计龙头，于2026年1月13日登陆港交所，募资约46.84亿港元</a>
+</li>
+<li><a href="https://www.eet-china.com/news/202601128118.html">移远通信推出搭载高通3nm工艺Q-8750处理器的新一代智能模组SP895BD-AP，集成77TOPS算力NPU、Adreno 830 GPU和异构计算架构，面向高端AIoT场景提供高性能、低功耗的端侧AI硬件解决方案。</a>
+</li>
+<li><a href="https://www.eet-china.com/news/202601129306.html">闪迪要求下游客户支付100%现金预付款以锁定未来1至3年SSD配额，并计划大幅上调企业级SSD价格。</a>
+</li>
 </ul>
 <div class="week">
 <div class="badge">W02</div>
 <div class="label">第二周</div>
 </div>
 <ul class="items">
-<li><a href="https://www.eet-china.com/news/202601093704.html">英伟达要求中国客户全款预付订购H200，且订单不可取消、不可退款、不可更改配置。</a></li>
-<li><a href="https://www.eet-china.com/news/202601071419.html">Marvell以5.4亿美元收购专注于PCIe/CXL交换解决方案的XConn Technologies</a></li>
-<li><a href="https://www.eet-china.com/news/202601069960.html">盈方微筹划通过发行股份和/或支付现金方式，打包收购上海肖克利、富士德中国及时擎智能三家企业的控股权，旨在补强芯片设计与供应链服务能力，其中时擎智能专注于RISC-V架构的边端智能芯片设计，协同公司Fabless模式下的技术布局。</a></li>
-<li><a href="https://www.eet-china.com/news/202601059734.html">Anthropic计划直接从博通采购近100万颗谷歌TPU v7 AI芯片，用于自建算力集群，强化对专用算力的控制权，减少对云计算供应商和CUDA生态的依赖。</a></li>
+<li><a href="https://www.eet-china.com/news/202601093704.html">英伟达要求中国客户全款预付订购H200，且订单不可取消、不可退款、不可更改配置。</a>
+</li>
+<li><a href="https://www.eet-china.com/news/202601071419.html">Marvell以5.4亿美元收购专注于PCIe/CXL交换解决方案的XConn Technologies</a>
+</li>
+<li><a href="https://www.eet-china.com/news/202601069960.html">盈方微筹划通过发行股份和/或支付现金方式，打包收购上海肖克利、富士德中国及时擎智能三家企业的控股权，旨在补强芯片设计与供应链服务能力，其中时擎智能专注于RISC-V架构的边端智能芯片设计，协同公司Fabless模式下的技术布局。</a>
+</li>
+<li><a href="https://www.eet-china.com/news/202601059734.html">Anthropic计划直接从博通采购近100万颗谷歌TPU v7 AI芯片，用于自建算力集群，强化对专用算力的控制权，减少对云计算供应商和CUDA生态的依赖。</a>
+</li>
 </ul>
 <div class="week">
 <div class="badge">W01</div>
 <div class="label">第一周</div>
 </div>
 <ul class="items">
-<li><a href="https://www.eet-china.com/news/202601045578.html">昆仑芯正推进香港IPO，计划募资不超过20亿美元，已提交上市申请，分拆后仍为百度附属公司。</a></li>
+<li><a href="https://www.eet-china.com/news/202601045578.html">昆仑芯正推进香港IPO，计划募资不超过20亿美元，已提交上市申请，分拆后仍为百度附属公司。</a>
+</li>
 </ul>
 </div>
 </section>
@@ -132,39 +171,54 @@ body {
 <div class="label">第四周</div>
 </div>
 <ul class="items">
-<li><a href="https://www.eet-china.com/news/202601205561.html">三星位于美国德克萨斯州泰勒市的2nm晶圆厂计划于2026年下半年实现量产，初期月产能达5万片，主要服务于特斯拉AI芯片及高通下一代处理器订单。</a></li>
-<li><a href="https://www.eet-china.com/news/202601196289.html">台积电回应美国转移40%产能传闻，强调在美投资1650亿美元建设晶圆厂聚落是基于客户需求，同时坚持最先进工艺根留台湾；目前亚利桑那州第一座晶圆厂已量产且良率与台湾持平，第二座将于2026年进设备，第三座动工，公司正申请第四座厂及封装厂许可。</a></li>
-<li><a href="https://www.eet-china.com/news/202601192203.html">美光科技宣布以18亿美元收购力积电旗下铜锣P5晶圆厂，旨在快速扩充其先进DRAM产能，并计划分阶段提升产量，同时与力积电建立长期代工合作关系。</a></li>
-<li><a href="https://www.eet-china.com/news/202601195022.html">美国以高达100%的进口关税施压，迫使三星、SK海力士等韩国存储巨头加速在美国本土投资建厂，推动先进制程与封装产能转移，以重塑半导体供应链。三星已计划在美投资超400亿美元建设晶圆厂与封装设施，SK海力士也计划投入近40亿美元建设先进封装厂，旨在争取未来关税豁免。</a></li>
+<li><a href="https://www.eet-china.com/news/202601205561.html">三星位于美国德克萨斯州泰勒市的2nm晶圆厂计划于2026年下半年实现量产，初期月产能达5万片，主要服务于特斯拉AI芯片及高通下一代处理器订单。</a>
+</li>
+<li><a href="https://www.eet-china.com/news/202601196289.html">台积电回应美国转移40%产能传闻，强调在美投资1650亿美元建设晶圆厂聚落是基于客户需求，同时坚持最先进工艺根留台湾；目前亚利桑那州第一座晶圆厂已量产且良率与台湾持平，第二座将于2026年进设备，第三座动工，公司正申请第四座厂及封装厂许可。</a>
+</li>
+<li><a href="https://www.eet-china.com/news/202601192203.html">美光科技宣布以18亿美元收购力积电旗下铜锣P5晶圆厂，旨在快速扩充其先进DRAM产能，并计划分阶段提升产量，同时与力积电建立长期代工合作关系。</a>
+</li>
+<li><a href="https://www.eet-china.com/news/202601195022.html">美国以高达100%的进口关税施压，迫使三星、SK海力士等韩国存储巨头加速在美国本土投资建厂，推动先进制程与封装产能转移，以重塑半导体供应链。三星已计划在美投资超400亿美元建设晶圆厂与封装设施，SK海力士也计划投入近40亿美元建设先进封装厂，旨在争取未来关税豁免。</a>
+</li>
 </ul>
 <div class="week">
 <div class="badge">W03</div>
 <div class="label">第三周</div>
 </div>
 <ul class="items">
-<li><a href="https://www.eet-china.com/news/202601167143.html">三星电子2nm制程良率提升至50%，计划2027年实现晶圆代工业务盈利。</a></li>
-<li><a href="https://www.eet-china.com/news/202601158401.html">三星计划关闭其8英寸晶圆代工厂S7，转而集中资源发展高利润的12英寸晶圆先进制程，以提升代工业务毛利率和资本回报率。</a></li>
-<li><a href="https://www.eet-china.com/news/202601157518.html">SK海力士加速扩产，将龙仁新晶圆厂投产时间提前至2027年2月，并计划于2026年2月启动清州M15X工厂的HBM量产，以应对AI驱动的内存需求激增。</a></li>
-<li><a href="https://www.eet-china.com/news/202601127884.html">台积电2025年12月营收同比增长20.4%，第四季度总营收突破1万亿新台币，主要受益于人工智能等高端应用对先进制程的强劲需求，同时其2纳米制程量产进展超预期，流片数量达3纳米同期的1.5倍。</a></li>
+<li><a href="https://www.eet-china.com/news/202601167143.html">三星电子2nm制程良率提升至50%，计划2027年实现晶圆代工业务盈利。</a>
+</li>
+<li><a href="https://www.eet-china.com/news/202601158401.html">三星计划关闭其8英寸晶圆代工厂S7，转而集中资源发展高利润的12英寸晶圆先进制程，以提升代工业务毛利率和资本回报率。</a>
+</li>
+<li><a href="https://www.eet-china.com/news/202601157518.html">SK海力士加速扩产，将龙仁新晶圆厂投产时间提前至2027年2月，并计划于2026年2月启动清州M15X工厂的HBM量产，以应对AI驱动的内存需求激增。</a>
+</li>
+<li><a href="https://www.eet-china.com/news/202601127884.html">台积电2025年12月营收同比增长20.4%，第四季度总营收突破1万亿新台币，主要受益于人工智能等高端应用对先进制程的强劲需求，同时其2纳米制程量产进展超预期，流片数量达3纳米同期的1.5倍。</a>
+</li>
 </ul>
 <div class="week">
 <div class="badge">W02</div>
 <div class="label">第二周</div>
 </div>
 <ul class="items">
-<li><a href="https://www.eet-china.com/news/202601094613.html">马斯克宣称特斯拉将建造一座2nm晶圆厂，并采用‘晶圆隔离’技术，通过密封保护晶圆本身来降低对洁净室环境的依赖，该设想因挑战当前半导体制造规范而引发行业争议。</a></li>
-<li><a href="https://www.eet-china.com/news/202601069880.html">英特尔在2026年CES发布首款采用18A制程（相当于1.8纳米）的消费级处理器Panther Lake，该芯片由其自家晶圆厂生产，标志着其先进制程自主可控的回归，但18A良率爬坡仍不理想，有效产能有限，短期内难以支撑大规模外部代工订单。</a></li>
-<li><a href="https://www.eet-china.com/news/202601067422.html">欧盟批准6.23亿欧元补贴，支持GlobalFoundries和X-FAB在德国建设两座新晶圆厂，聚焦特色工艺与MEMS制造，旨在提升欧洲半导体产能自主性与产业链韧性。</a></li>
-<li><a href="https://www.eet-china.com/news/202601057026.html">三星电子重启平泽P5晶圆厂建设，预计2028年投产，该工厂将具备存储芯片和晶圆代工生产能力，旨在应对AI驱动的存储需求增长并扩充先进制程产能。</a></li>
-<li><a href="https://www.eet-china.com/news/202601054562.html">台积电美国亚利桑那州晶圆厂每片晶圆生产成本达16,123美元，较台湾同工艺工厂高出141%，主因人工与折旧成本显著上升，导致美国厂毛利率仅8%，远低于台湾厂的62%。</a></li>
+<li><a href="https://www.eet-china.com/news/202601094613.html">马斯克宣称特斯拉将建造一座2nm晶圆厂，并采用‘晶圆隔离’技术，通过密封保护晶圆本身来降低对洁净室环境的依赖，该设想因挑战当前半导体制造规范而引发行业争议。</a>
+</li>
+<li><a href="https://www.eet-china.com/news/202601069880.html">英特尔在2026年CES发布首款采用18A制程（相当于1.8纳米）的消费级处理器Panther Lake，该芯片由其自家晶圆厂生产，标志着其先进制程自主可控的回归，但18A良率爬坡仍不理想，有效产能有限，短期内难以支撑大规模外部代工订单。</a>
+</li>
+<li><a href="https://www.eet-china.com/news/202601067422.html">欧盟批准6.23亿欧元补贴，支持GlobalFoundries和X-FAB在德国建设两座新晶圆厂，聚焦特色工艺与MEMS制造，旨在提升欧洲半导体产能自主性与产业链韧性。</a>
+</li>
+<li><a href="https://www.eet-china.com/news/202601057026.html">三星电子重启平泽P5晶圆厂建设，预计2028年投产，该工厂将具备存储芯片和晶圆代工生产能力，旨在应对AI驱动的存储需求增长并扩充先进制程产能。</a>
+</li>
+<li><a href="https://www.eet-china.com/news/202601054562.html">台积电美国亚利桑那州晶圆厂每片晶圆生产成本达16,123美元，较台湾同工艺工厂高出141%，主因人工与折旧成本显著上升，导致美国厂毛利率仅8%，远低于台湾厂的62%。</a>
+</li>
 </ul>
 <div class="week">
 <div class="badge">W01</div>
 <div class="label">第一周</div>
 </div>
 <ul class="items">
-<li><a href="https://www.eet-china.com/news/202601043866.html">晶合集成启动总投资355亿元的四期晶圆厂项目，建设月产能5.5万片的12英寸生产线，聚焦40纳米及28纳米CIS、OLED驱动芯片和逻辑工艺，预计2026年第四季度试产，2028年第二季度满产。</a></li>
-<li><a href="https://www.eet-china.com/news/202601047375.html">华虹半导体拟以82.68亿元收购华力微97.4988%股权，整合其12英寸晶圆制造产能，解决同业竞争并增强在40纳米等特色工艺节点的竞争力。</a></li>
+<li><a href="https://www.eet-china.com/news/202601043866.html">晶合集成启动总投资355亿元的四期晶圆厂项目，建设月产能5.5万片的12英寸生产线，聚焦40纳米及28纳米CIS、OLED驱动芯片和逻辑工艺，预计2026年第四季度试产，2028年第二季度满产。</a>
+</li>
+<li><a href="https://www.eet-china.com/news/202601047375.html">华虹半导体拟以82.68亿元收购华力微97.4988%股权，整合其12英寸晶圆制造产能，解决同业竞争并增强在40纳米等特色工艺节点的竞争力。</a>
+</li>
 </ul>
 </div>
 </section>
@@ -176,21 +230,24 @@ body {
 <div class="label">第三周</div>
 </div>
 <ul class="items">
-<li><a href="https://www.eet-china.com/news/202601177517.html">上海车仪田科技有限公司北京新工厂投产，聚焦半导体加热与温控零部件的自动化生产，产品应用于刻蚀、薄膜等半导体设备，助力核心零部件国产化。</a></li>
+<li><a href="https://www.eet-china.com/news/202601177517.html">上海车仪田科技有限公司北京新工厂投产，聚焦半导体加热与温控零部件的自动化生产，产品应用于刻蚀、薄膜等半导体设备，助力核心零部件国产化。</a>
+</li>
 </ul>
 <div class="week">
 <div class="badge">W02</div>
 <div class="label">第二周</div>
 </div>
 <ul class="items">
-<li><a href="https://www.eet-china.com/news/202601081626.html">上海微电子将其全资子公司威耀实业以2.285亿元转让给芯上微装，系推进研发与产业化分离的战略重组，芯上微装将聚焦半导体装备的产业化运作，而上海微电子更专注于核心技术研发。</a></li>
+<li><a href="https://www.eet-china.com/news/202601081626.html">上海微电子将其全资子公司威耀实业以2.285亿元转让给芯上微装，系推进研发与产业化分离的战略重组，芯上微装将聚焦半导体装备的产业化运作，而上海微电子更专注于核心技术研发。</a>
+</li>
 </ul>
 <div class="week">
 <div class="badge">W01</div>
 <div class="label">第一周</div>
 </div>
 <ul class="items">
-<li><a href="https://www.eet-china.com/news/202601049354.html">台积电获得美国2026年度许可证，允许其向南京工厂输出受管制的芯片制造设备，确保成熟制程产能的持续运营。</a></li>
+<li><a href="https://www.eet-china.com/news/202601049354.html">台积电获得美国2026年度许可证，允许其向南京工厂输出受管制的芯片制造设备，确保成熟制程产能的持续运营。</a>
+</li>
 </ul>
 </div>
 </section>
@@ -202,21 +259,24 @@ body {
 <div class="label">第四周</div>
 </div>
 <ul class="items">
-<li><a href="https://www.eet-china.com/news/202601193836.html">中国收紧对日本稀土出口审查，要求企业提供更详尽的最终用途、销售对象及第三方出口信息，此举与日本涉台言论及再军事化动向相关，凸显稀土作为关键战略资源在地缘政治中的重要性。</a></li>
+<li><a href="https://www.eet-china.com/news/202601193836.html">中国收紧对日本稀土出口审查，要求企业提供更详尽的最终用途、销售对象及第三方出口信息，此举与日本涉台言论及再军事化动向相关，凸显稀土作为关键战略资源在地缘政治中的重要性。</a>
+</li>
 </ul>
 <div class="week">
 <div class="badge">W03</div>
 <div class="label">第三周</div>
 </div>
 <ul class="items">
-<li><a href="https://www.eet-china.com/news/202601151362.html">日本企业日东纺织垄断全球90%以上高端玻璃纤维布供应，因扩产周期长、技术壁垒高，新产能要到2027年才能落地，导致AI服务器主板所需的关键材料持续紧缺，成为制约英伟达、苹果等科技巨头产品交付的“卡脖子”环节。</a></li>
+<li><a href="https://www.eet-china.com/news/202601151362.html">日本企业日东纺织垄断全球90%以上高端玻璃纤维布供应，因扩产周期长、技术壁垒高，新产能要到2027年才能落地，导致AI服务器主板所需的关键材料持续紧缺，成为制约英伟达、苹果等科技巨头产品交付的“卡脖子”环节。</a>
+</li>
 </ul>
 <div class="week">
 <div class="badge">W02</div>
 <div class="label">第二周</div>
 </div>
 <ul class="items">
-<li><a href="https://www.eet-china.com/news/202601089270.html">中国商务部对原产于日本的进口二氯二氢硅发起反倾销调查，该材料是芯片制造中用于薄膜沉积的关键高纯度半导体材料，国内企业称其低价进口对本土产业造成实质性损害。</a></li>
+<li><a href="https://www.eet-china.com/news/202601089270.html">中国商务部对原产于日本的进口二氯二氢硅发起反倾销调查，该材料是芯片制造中用于薄膜沉积的关键高纯度半导体材料，国内企业称其低价进口对本土产业造成实质性损害。</a>
+</li>
 </ul>
 </div>
 </section>
@@ -228,14 +288,16 @@ body {
 <div class="label">第四周</div>
 </div>
 <ul class="items">
-<li><a href="https://www.eet-china.com/news/202601196503.html">台湾环旭电子收购成都光创联，旨在整合其在CPO和NPO等先进光互连技术领域的研发能力，结合日月光的先进封装工艺，打造光电共封装解决方案平台，抢占AI数据中心高速互连市场。</a></li>
+<li><a href="https://www.eet-china.com/news/202601196503.html">台湾环旭电子收购成都光创联，旨在整合其在CPO和NPO等先进光互连技术领域的研发能力，结合日月光的先进封装工艺，打造光电共封装解决方案平台，抢占AI数据中心高速互连市场。</a>
+</li>
 </ul>
 <div class="week">
 <div class="badge">W02</div>
 <div class="label">第二周</div>
 </div>
 <ul class="items">
-<li><a href="https://www.eet-china.com/news/202601073414.html">雷克沙母公司江波龙凭借自研主控、封测制造及SiP工艺支持，推出用于AI穿戴设备的超小尺寸ePOP5x集成存储产品，其0.52mm超薄封装设计依托苏州高端封测基地实现，助力智能眼镜等设备轻薄化。</a></li>
+<li><a href="https://www.eet-china.com/news/202601073414.html">雷克沙母公司江波龙凭借自研主控、封测制造及SiP工艺支持，推出用于AI穿戴设备的超小尺寸ePOP5x集成存储产品，其0.52mm超薄封装设计依托苏州高端封测基地实现，助力智能眼镜等设备轻薄化。</a>
+</li>
 </ul>
 </div>
 </section>
@@ -247,8 +309,10 @@ body {
 <div class="label">第三周</div>
 </div>
 <ul class="items">
-<li><a href="https://www.eet-china.com/news/202601163794.html">闻泰科技与其控股的荷兰半导体公司安世半导体因控制权问题对簿公堂，案件涉及管理层变动、技术转移争议及中欧企业治理冲突，若裁决不利可能导致安世欧洲与中国业务割裂，影响其全球运营协同与汽车芯片供应。</a></li>
-<li><a href="https://www.eet-china.com/news/202601146259.html">SK海力士被传考虑退出消费级DRAM和NAND市场，聚焦HBM等高利润领域，若属实将导致全球存储市场集中度进一步提升，供应链格局面临重塑。</a></li>
+<li><a href="https://www.eet-china.com/news/202601163794.html">闻泰科技与其控股的荷兰半导体公司安世半导体因控制权问题对簿公堂，案件涉及管理层变动、技术转移争议及中欧企业治理冲突，若裁决不利可能导致安世欧洲与中国业务割裂，影响其全球运营协同与汽车芯片供应。</a>
+</li>
+<li><a href="https://www.eet-china.com/news/202601146259.html">SK海力士被传考虑退出消费级DRAM和NAND市场，聚焦HBM等高利润领域，若属实将导致全球存储市场集中度进一步提升，供应链格局面临重塑。</a>
+</li>
 </ul>
 </div>
 </section>
@@ -260,25 +324,32 @@ body {
 <div class="label">第三周</div>
 </div>
 <ul class="items">
-<li><a href="https://www.eet-china.com/news/202601168688.html">美国商务部长称将推动中国台湾40%半导体供应链转移至美国本土，要求台积电等企业赴美建厂，否则将面临高额关税，旨在实现美国芯片制造自给自足。</a></li>
-<li><a href="https://www.eet-china.com/news/202601156367.html">美国以国家安全为由，自2026年1月15日起对部分进口半导体及制造设备加征25%关税，政策引发行业分化与法律争议，旨在推动制造业回流并重塑全球科技竞争格局。</a></li>
-<li><a href="https://www.eet-china.com/news/202601158129.html">三星子公司哈曼国际起诉美国政府，要求退还特朗普政府依据IEEPA征收的‘对等关税’，此案涉及行政权力边界与宪法分权争议，牵涉全球供应链及近千家企业诉讼。</a></li>
-<li><a href="https://www.eet-china.com/news/202601122591.html">台积电因被指违反与美国政府合同中的DEI（多元、公平及包容）条款，遭美方威逼追加1000亿美元投资，以换取违约责任豁免，使其在美总投资达1650亿美元，并可能进一步增至2000亿美元，用于建设亚利桑那州的晶圆厂集群。</a></li>
+<li><a href="https://www.eet-china.com/news/202601168688.html">美国商务部长称将推动中国台湾40%半导体供应链转移至美国本土，要求台积电等企业赴美建厂，否则将面临高额关税，旨在实现美国芯片制造自给自足。</a>
+</li>
+<li><a href="https://www.eet-china.com/news/202601156367.html">美国以国家安全为由，自2026年1月15日起对部分进口半导体及制造设备加征25%关税，政策引发行业分化与法律争议，旨在推动制造业回流并重塑全球科技竞争格局。</a>
+</li>
+<li><a href="https://www.eet-china.com/news/202601158129.html">三星子公司哈曼国际起诉美国政府，要求退还特朗普政府依据IEEPA征收的‘对等关税’，此案涉及行政权力边界与宪法分权争议，牵涉全球供应链及近千家企业诉讼。</a>
+</li>
+<li><a href="https://www.eet-china.com/news/202601122591.html">台积电因被指违反与美国政府合同中的DEI（多元、公平及包容）条款，遭美方威逼追加1000亿美元投资，以换取违约责任豁免，使其在美总投资达1650亿美元，并可能进一步增至2000亿美元，用于建设亚利桑那州的晶圆厂集群。</a>
+</li>
 </ul>
 <div class="week">
 <div class="badge">W02</div>
 <div class="label">第二周</div>
 </div>
 <ul class="items">
-<li><a href="https://www.eet-china.com/news/202601096511.html">泰国发布首个半导体长期发展路线图，计划到2050年实现‘泰国制造芯片’，通过政策激励、人才支撑、技术攻关等五大机制，推动本土产业链向高附加值环节升级，并吸引超2.5万亿泰铢投资。</a></li>
-<li><a href="https://www.eet-china.com/news/202601053253.html">韩国2025年半导体出口额达1734亿美元，同比增长22.2%，主要受益于AI与数据中心对高价存储芯片的强劲需求，三星电子和SK海力士成为主要受益者。尽管面临美国加征关税压力，韩国通过市场多元化战略缓解冲击，并计划加大AI领域投入以跻身全球三大AI强国。</a></li>
+<li><a href="https://www.eet-china.com/news/202601096511.html">泰国发布首个半导体长期发展路线图，计划到2050年实现‘泰国制造芯片’，通过政策激励、人才支撑、技术攻关等五大机制，推动本土产业链向高附加值环节升级，并吸引超2.5万亿泰铢投资。</a>
+</li>
+<li><a href="https://www.eet-china.com/news/202601053253.html">韩国2025年半导体出口额达1734亿美元，同比增长22.2%，主要受益于AI与数据中心对高价存储芯片的强劲需求，三星电子和SK海力士成为主要受益者。尽管面临美国加征关税压力，韩国通过市场多元化战略缓解冲击，并计划加大AI领域投入以跻身全球三大AI强国。</a>
+</li>
 </ul>
 <div class="week">
 <div class="badge">W01</div>
 <div class="label">第一周</div>
 </div>
 <ul class="items">
-<li><a href="https://www.eet-china.com/news/202601045145.html">特朗普以国家安全为由，依据《国防生产法》阻止瀚孚光电收购埃姆科的芯片资产，因涉及晶圆制造及磷化铟芯片技术，CFIUS认定该交易可能导致关键技术转移，需在180天内剥离已收购的制造资产。</a></li>
+<li><a href="https://www.eet-china.com/news/202601045145.html">特朗普以国家安全为由，依据《国防生产法》阻止瀚孚光电收购埃姆科的芯片资产，因涉及晶圆制造及磷化铟芯片技术，CFIUS认定该交易可能导致关键技术转移，需在180天内剥离已收购的制造资产。</a>
+</li>
 </ul>
 </div>
 </section>

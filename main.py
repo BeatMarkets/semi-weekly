@@ -609,8 +609,21 @@ def ensure_db_schema(conn: sqlite3.Connection) -> None:
           created_at TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS article_links (
+          from_article_id INTEGER NOT NULL,
+          to_article_id INTEGER NOT NULL,
+          relation TEXT NOT NULL,
+          note TEXT,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (from_article_id, to_article_id),
+          FOREIGN KEY(from_article_id) REFERENCES articles(id) ON DELETE CASCADE,
+          FOREIGN KEY(to_article_id) REFERENCES articles(id) ON DELETE CASCADE
+        );
+
         CREATE INDEX IF NOT EXISTS idx_reviews_status ON reviews(review_status);
         CREATE INDEX IF NOT EXISTS idx_articles_pubdate ON articles(published_date);
+        CREATE INDEX IF NOT EXISTS idx_article_links_from ON article_links(from_article_id);
+        CREATE INDEX IF NOT EXISTS idx_article_links_to ON article_links(to_article_id);
         """
     )
 
